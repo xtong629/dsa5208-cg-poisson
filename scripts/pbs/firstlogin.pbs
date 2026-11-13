@@ -1,0 +1,7 @@
+#!/bin/bash
+#PBS -N p3_firstlogin
+#PBS -j oe
+# Step 2 of the first-login checklist as a batch job (instead of an interactive session).
+# Resources are given by `bash scripts/first_login.sh vanda --batch`.
+cd "${PBS_O_WORKDIR:?submit from the repository root}"
+exec bash scripts/first_login_build.sh "${CLUSTER:?}" both

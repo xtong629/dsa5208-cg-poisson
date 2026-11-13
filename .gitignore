@@ -11,3 +11,4 @@ results/
 # python / OS
 __pycache__/
 .DS_Store
+figures_localtest/

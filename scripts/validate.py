@@ -5,6 +5,7 @@
   python3 scripts/validate.py mpi             tests 1-4 for build/mpi   (needs mpirun)
   python3 scripts/validate.py hybrid          same tests for build/hybrid with OMP threads
   python3 scripts/validate.py all             serial + mpi (+ hybrid if built)
+  add --quick for a tiny version (about a minute): used for the first-login check on a cluster
 
 Tests
   1  Discretisation error decreases as O(h^2): observed order between consecutive grids in (1.9, 2.1),
@@ -31,6 +32,7 @@ NCPU = os.cpu_count() or 1   # hybrid combos with ranks*threads > NCPU are skipp
 TOL_SOL = 1e-9       # relative difference of the solutions (solver tol 1e-13 -> ~1e-11 expected)
 ITER_SLACK = 2
 failures = []
+QUICK = "--quick" in sys.argv
 TMP = tempfile.mkdtemp()
 
 
@@ -87,6 +89,7 @@ def order_test(rows, label):
 def test1(binary):
     print("[test 1] O(h^2) discretisation error")
     sizes = {2: [15, 31, 63, 127, 255], 3: [7, 15, 31, 63]}
+    if QUICK: sizes = {2: [15, 31, 63, 127], 3: [7, 15, 31]}
     for dim in (2, 3):
         c = os.path.join(TMP, f"o_{binary}_{dim}.csv")
         if os.path.exists(c): os.remove(c)
@@ -101,14 +104,14 @@ def test1(binary):
 
 
 def tests_parallel(binary):
-    threads_list = THREADS if binary == "hybrid" else [1]
+    threads_list = ([t for t in THREADS if t <= 2] if QUICK else THREADS) if binary == "hybrid" else [1]
     variants = [("blocking", 0), ("nonblocking", 0), ("nonblocking", 1)]
     print(f"[tests 2-4] {binary}: parallel vs serial, decompositions x halo variants")
-    for dim, N in ((2, 127), (3, 31)):
+    for dim, N in (((2, 63), (3, 15)) if QUICK else ((2, 127), (3, 31))):
         sref, dump = serial_ref(dim, N)
         it_s = int(sref["iters"])
         for th in threads_list:
-            for np_ in NPS:
+            for np_ in ([n for n in NPS if n <= 4] if QUICK else NPS):
                 if np_ * th > NCPU: continue
                 for decomp in ("slab", "block"):
                     errs = []
@@ -132,6 +135,7 @@ def test5(binary):
     th = 2 if binary == "hybrid" else 1
     print(f"[test 5] {binary}: uneven / tiny subdomains (threads={th})")
     cases = [(2, 4, 8), (2, 10, 8), (2, 50, 6), (3, 4, 8), (3, 5, 8), (3, 5, 6), (3, 29, 8), (3, 7, 4)]
+    if QUICK: cases = [(2, 10, 4), (3, 5, 4)]
     for dim, N, np_ in cases:
         sref, dump = serial_ref(dim, N)
         for decomp in ("block", "slab"):
@@ -144,7 +148,8 @@ def test5(binary):
 
 
 def main():
-    what = sys.argv[1] if len(sys.argv) > 1 else "all"
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    what = args[0] if args else "all"
     bins = []
     if what in ("serial", "all"): bins.append("serial")
     if what in ("mpi", "all"): bins.append("mpi")

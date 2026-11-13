@@ -24,7 +24,7 @@ else
 OMPFLAGS ?= -fopenmp
 endif
 
-.PHONY: all serial mpi hybrid cuda cuda-check test clean
+.PHONY: all serial mpi hybrid cuda cuda-alt cuda-check test clean
 all: serial mpi hybrid
 
 serial: $(BUILD)/serial
@@ -53,6 +53,21 @@ CUDA_SRC := $(wildcard src/cuda/*.hpp src/cuda/*.cuh) $(wildcard src/common/*.hp
 cuda: $(BUILD)/cuda
 $(BUILD)/cuda: src/cuda_main.cu $(CUDA_SRC) | $(BUILD)
 	$(NVCC) -O3 -std=c++17 -arch=$(CUDA_ARCH) -ccbin $(CUDA_HOSTCXX) -DUSE_MPI -DUSE_CUDA $(CUDA_EXTRA) -Isrc -o $@ $<
+
+# Fallback if `nvcc -ccbin mpicxx` fails (e.g. host-compiler version check, wrapper flags nvcc
+# rejects): compile the .cu with nvcc using the SYSTEM g++ as host compiler and only the -I flags
+# of the MPI wrapper, then link with the MPI wrapper plus the CUDA runtime. Produces the same
+# build/cuda. Overrides:
+#   make cuda-alt MPI_INC="-I/path/to/mpi/include"      (NVHPC / MPICH: see `mpicxx -show`)
+#   make cuda-alt CUDA_HOME=/path/to/cuda  CUDA_ALT_HOSTCXX=g++-12
+CUDA_ALT_HOSTCXX ?= g++
+MPI_INC          ?= $(filter -I%,$(shell $(MPICXX) --showme:compile 2>/dev/null))
+CUDA_HOME        ?= $(patsubst %/bin/nvcc,%,$(shell command -v $(NVCC) 2>/dev/null))
+CUDA_ALT_LDFLAGS ?= -L$(CUDA_HOME)/lib64 -lcudart -Wl,-rpath,$(CUDA_HOME)/lib64
+cuda-alt: | $(BUILD)
+	@test -n "$(MPI_INC)" || echo "note: no MPI include flags found; pass MPI_INC=-I/path/to/mpi/include if the compile fails"
+	$(NVCC) -c -O3 -std=c++17 -arch=$(CUDA_ARCH) -ccbin $(CUDA_ALT_HOSTCXX) $(MPI_INC) -DUSE_MPI -DUSE_CUDA $(CUDA_EXTRA) -Isrc -o $(BUILD)/cuda_main.o src/cuda_main.cu
+	$(MPICXX) -o $(BUILD)/cuda $(BUILD)/cuda_main.o $(CUDA_ALT_LDFLAGS)
 
 # Type-check the CUDA sources WITHOUT CUDA (uses src/cuda/stub/cuda_runtime.h): catches typos and
 # wrong API usage on a laptop; it does not run or test anything.
