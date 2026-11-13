@@ -3,6 +3,7 @@
 #   bash scripts/submit.sh <atlas|vanda> <experiment|cpu|gpu|all> [--dry-run] [--preview]
 #   experiments: serial strong weak decomp_halo hybrid gpu_sweep gpu_multi
 #   --dry-run : print the qsub commands and the core-hour upper bound (cores x walltime), submit nothing
+#   --allow-vanda-cpu : submit CPU experiments on Vanda too (default: Vanda is reserved for GPU runs; use Atlas)
 #   --preview : like --dry-run but with assumed cluster numbers (64 cores/node ...) while
 #               config/cluster.env still holds CHANGE_ME -- to look at the job plan before the cluster is known
 # JOB_SPLIT=tiered (default): one job per node count so a 1-node run does not hold a 4-node allocation.
@@ -11,8 +12,8 @@ cd "$(dirname "$0")/.."
 source scripts/lib.sh
 [ $# -ge 2 ] || { sed -n '2,9p' "$0"; exit 2; }
 load_config "$1"; WHAT="$2"; shift 2
-DRY=0; PREVIEW=0
-for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; --preview) DRY=1; PREVIEW=1 ;; *) echo "unknown option $a" >&2; exit 2 ;; esac; done
+DRY=0; PREVIEW=0; ALLOW_VANDA_CPU=0
+for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; --preview) DRY=1; PREVIEW=1 ;; --allow-vanda-cpu) ALLOW_VANDA_CPU=1 ;; *) echo "unknown option $a" >&2; exit 2 ;; esac; done
 
 if [ "$PREVIEW" = 1 ]; then
   # assumed numbers, only for the preview
@@ -57,6 +58,12 @@ cpu_job() {   # cpu_job <exp> <wall> <np list>
 
 do_exp() {
   local e="$1" cpn
+  case "$e" in serial|strong|weak|decomp_halo|hybrid)
+    if [ "$CLUSTER" = vanda ] && [ "$ALLOW_VANDA_CPU" = 0 ]; then
+      echo "SKIP $e on vanda: CPU experiments run on Atlas (Vanda's core-hours are reserved for GPU runs; --allow-vanda-cpu overrides)"
+      return
+    fi ;;
+  esac
   case "$e" in
     serial)
       require_cfg QUEUE SELECT_SERIAL || exit 1
@@ -78,6 +85,7 @@ do_exp() {
 
 if [ "$PREVIEW" = 0 ]; then
   req="CORES_PER_NODE MAX_CORES_PER_JOB QUEUE"
+  if [ "$CLUSTER" = vanda ] && [ "$ALLOW_VANDA_CPU" = 0 ]; then req="GPU_QUEUE GPUS_PER_NODE GPU_NODE_CPUS"; fi
   case "$WHAT" in gpu*|all) [ "$CLUSTER" = vanda ] && req="$req GPU_QUEUE GPUS_PER_NODE GPU_NODE_CPUS" ;; esac
   require_cfg $req || { echo "fill in config/cluster.env (or use --preview to see the plan)" >&2; exit 1; }
 fi

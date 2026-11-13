@@ -15,8 +15,10 @@ case "$what" in
   serial|strong|weak|decomp_halo|hybrid|gpu_sweep|gpu_multi) "exp_$what" ;;
   cpu) exp_serial; exp_strong; exp_weak; exp_decomp_halo; exp_hybrid ;;
   gpu) exp_gpu_sweep; exp_gpu_multi ;;
-  all) exp_serial; exp_strong; exp_weak; exp_decomp_halo; exp_hybrid
-       [ "$CLUSTER" = vanda ] && { exp_gpu_sweep; exp_gpu_multi; } ;;
+  all) # policy: CPU experiments on Atlas; Vanda (limited core-hours) only runs the GPU experiments
+       if [ "$CLUSTER" = vanda ] && [ "${ALLOW_VANDA_CPU:-0}" != 1 ]; then exp_gpu_sweep; exp_gpu_multi
+       else exp_serial; exp_strong; exp_weak; exp_decomp_halo; exp_hybrid
+            [ "$CLUSTER" = vanda ] && { exp_gpu_sweep; exp_gpu_multi; }; fi ;;
   *) echo "unknown experiment $what" >&2; exit 2 ;;
 esac
 echo "done: $what ($CLUSTER) -> ${RESDIR:-results}"

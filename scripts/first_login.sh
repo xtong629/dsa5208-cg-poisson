@@ -37,12 +37,30 @@ if command -v hpc >/dev/null 2>&1; then
   hpc cpu > "$OUT/hpc_cpu.txt" 2>&1; hpc gpu > "$OUT/hpc_gpu.txt" 2>&1
 else echo "(hpc command not available here)" | tee "$OUT/hpc_cpu.txt" > "$OUT/hpc_gpu.txt"; fi
 
+# remaining core-hour allocation: we do not guess a command. Save the help text of `hpc`, look for
+# accounting-related subcommands in it, and run the ones that exist (read-only queries only).
+echo "== core-hour allocation / quota -> $OUT/allocation.txt"
+{
+  if command -v hpc >/dev/null 2>&1; then
+    for h in "hpc" "hpc help" "hpc --help" "hpc -h"; do echo "\$ $h"; $h 2>&1 | head -60; echo; done
+    cands="$(( hpc help; hpc --help; hpc ) 2>&1 | grep -o -i -w -E 'quota|balance|usage|allocation|account|project|credit|credits' | tr 'A-Z' 'a-z' | sort -u)"
+    for c in $cands; do echo "\$ hpc $c"; timeout 20 hpc $c 2>&1 | head -40; echo; done
+  else
+    echo "(hpc command not available on this machine)"
+  fi
+} > "$OUT/allocation.txt" 2>&1
+echo "   (look for your remaining core-hours in $OUT/allocation.txt; if nothing there, ask the cluster admins which command reports it)"
+grep -i -E 'core.?hour|remaining|balance|quota|allocation|used|credit' "$OUT/allocation.txt" | head -10
+
 echo "== module avail -> $OUT/modules.txt   (module avail prints to stderr)"
 if type module >/dev/null 2>&1; then
   { echo '$ module avail'; module avail 2>&1; echo; echo '$ module list'; module list 2>&1; } > "$OUT/modules.txt"
 else echo "(module command not available: set ${CLUSTER_U}_ENV_INIT in config/cluster.env)" | tee "$OUT/modules.txt"; fi
 echo "   MPI-ish modules:"; grep -i -E 'mpi|nvhpc|cuda|gcc|intel' "$OUT/modules.txt" | head -20
 
+echo
+echo "POLICY: run ALL CPU experiments (serial T_s, strong/weak, decomposition/halo, hybrid) on ATLAS (unlimited use)."
+echo "        Reserve VANDA's limited core-hours for the GPU experiments unless the allocation (allocation.txt) is clearly sufficient."
 echo
 echo "Now read $OUT/*.txt and fill CHANGE_ME in config/cluster.env:"
 echo "  queue names, cores per node, max cores per job (qstat -Qf), modules (module avail), GPUs per node (Vanda)."
