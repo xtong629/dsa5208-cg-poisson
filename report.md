@@ -231,9 +231,7 @@ The serial binary needs more than 6 GB for 3D $N=512$, so the serial job is subm
 
 ## 4 MPI scaling and efficiency
 
-**Setup.** Rank counts $n = 1, 2, 4, \dots, 256$ (powers of two; 64 ranks per node, so 128 and 256 ranks use 2 and 4 whole nodes; 512 ranks were not run). Each job has exclusive use of its nodes (`place=excl`), the code is pure MPI with one thread per rank, block decomposition, non-blocking halo exchange with overlap unless stated otherwise, fixed 100 CG iterations, 3 repetitions, median. Strong scaling: 2D $N=4096$ and $8192$ (16.8 M and 67.1 M unknowns), 3D $N=256$ and $512$ (16.8 M and 134 M unknowns); rank counts whose subdomain would exceed 17 M points are skipped to save core-hours, so the large problems start at 8 ranks. Weak scaling: constant points per rank, 2D $1024^2$ and $2048^2$, 3D $64^3$ and $128^3$ per rank, up to 128 ranks.
-
-> **PENDING (required):** the weak-scaling point at **256 ranks** (job `p3_weak`, 4 nodes) is still queued. All weak-scaling figures and tables below stop at 128 ranks and will be regenerated with `scripts/plot.py` when it arrives.
+**Setup.** Rank counts $n = 1, 2, 4, \dots, 256$ (powers of two; 64 ranks per node, so 128 and 256 ranks use 2 and 4 whole nodes; 512 ranks were not run). Each job has exclusive use of its nodes (`place=excl`), the code is pure MPI with one thread per rank, block decomposition, non-blocking halo exchange with overlap unless stated otherwise, fixed 100 CG iterations, 3 repetitions, median. Strong scaling: 2D $N=4096$ and $8192$ (16.8 M and 67.1 M unknowns), 3D $N=256$ and $512$ (16.8 M and 134 M unknowns); rank counts whose subdomain would exceed 17 M points are skipped to save core-hours, so the large problems start at 8 ranks. Weak scaling: constant points per rank, 2D $1024^2$ and $2048^2$, 3D $64^3$ and $128^3$ per rank, up to 256 ranks.
 
 ### 4.1 Strong scaling
 
@@ -256,23 +254,21 @@ The serial binary needs more than 6 GB for 3D $N=512$, so the serial job is subm
 
 ### 4.2 Weak scaling
 
-**Figure `fig_weak_2D`**, **Figure `fig_weak_3D`** (time per iteration and weak-scaling efficiency vs $n$) and **Table `figures/tables/weak_scaling.csv`** (measured scaled speedup; up to 128 ranks so far).
+**Figure `fig_weak_2D`**, **Figure `fig_weak_3D`** (time per iteration and weak-scaling efficiency vs $n$) and **Table `figures/tables/weak_scaling.csv`** (measured scaled speedup), up to 256 ranks (4 nodes).
 
-| points per rank | $n=1$ | $n=8$ | $n=64$ | $n=128$ |
-|---|---|---|---|---|
-| 2D $1024^2$ | 0.69 | 0.45 | 0.17 | 0.17 |
-| 2D $2048^2$ | 0.83 | 0.62 | 0.24 | 0.23 |
-| 3D $64^3$ | 0.91 | 0.57 | 0.18 | 0.17 |
-| 3D $128^3$ | 0.74 | 0.47 | 0.19 | 0.19 |
+| points per rank | $n=1$ | $n=8$ | $n=64$ | $n=128$ | $n=256$ |
+|---|---|---|---|---|---|
+| 2D $1024^2$ | 0.69 | 0.45 | 0.17 | 0.17 | 0.17 |
+| 2D $2048^2$ | 0.83 | 0.62 | 0.24 | 0.23 | 0.23 |
+| 3D $64^3$ | 0.91 | 0.57 | 0.18 | 0.17 | 0.16 |
+| 3D $128^3$ | 0.74 | 0.47 | 0.19 | 0.19 | 0.18 |
 
-(weak-scaling efficiency; scaled speedup at 128 ranks: 22–30, against 128 for ideal Gustafson scaling).
+(weak-scaling efficiency; scaled speedup at 256 ranks: 41–60, against 256 for ideal Gustafson scaling).
 
-* **The time per iteration rises by a factor of 3.5–5.2 between 1 and 64 ranks, then stays flat from 64 to 128 ranks** (for example 3D $128^3$ per rank: 41.5 ms at 64 and 41.7 ms at 128; 2D $1024^2$: 18.9 and 19.0 ms). Going from one node to two nodes therefore costs almost nothing here, whereas going from 1 to 64 ranks inside one node costs a factor of 3.5–5. This is again the memory-bandwidth limit of Section 4.1: with weak scaling each rank brings its own data, the total memory traffic grows with $n$, but a node's memory bandwidth does not. The Allreduce (which grows with $n$) is only 8–9% of the iteration for $128^3$ per rank at 64 and 128 ranks, and about 18–21% for the small $64^3$ problem, so it is not the main term for the larger problem.
-* **The efficiency at $n=1$ is below 1** (0.69–0.91) because weak-scaling efficiency is normalised by the serial program's time at the base size, and the 1-rank MPI code is slower than the serial program at these sizes (by up to 44% for 2D $1024^2$; by 0–6% for the large strong-scaling problems). If the 1-rank MPI time were used as the baseline instead, all values would be higher by the same factor (for example 0.17/0.69 = 0.25 for 2D $1024^2$ at 128 ranks); we kept the serial program as baseline to be consistent with the definition of $T_s$ in Section 2.
-* **Gustafson's law:** the scaled speedups of 22–30 at 128 ranks correspond to a "serial fraction" of about 0.77–0.83, far from the 1–3% suggested by the Amdahl fits. This inconsistency is another sign that neither law's assumption (a fixed serial fraction) holds for a bandwidth-bound code, and that the bandwidth limit, not serial code, is what bounds the scaling.
+* **The time per iteration rises by a factor of 3.5–5.2 between 1 and 64 ranks, then stays almost flat from 64 to 128 to 256 ranks** (for example 3D $128^3$ per rank: 41.5 ms at 64, 41.7 ms at 128 and 42.3 ms at 256; 2D $1024^2$: 18.9, 19.0 and 19.4 ms). Going from one node to two or four nodes therefore costs at most 2–5% here (7% for the smallest problem, 3D $64^3$: 4.85, 5.12, 5.38 ms), whereas going from 1 to 64 ranks inside one node costs a factor of 3.5–5. This is again the memory-bandwidth limit of Section 4.1: with weak scaling each rank brings its own data, the total memory traffic grows with $n$, but a node's memory bandwidth does not. The Allreduce (which grows with $n$) is only 8–9% of the iteration for $128^3$ per rank at 64 and 128 ranks (12% at 256) and 9–13% for the 2D problems, while for the small $64^3$ problem it grows from 18% (64 ranks) to 21% (128) and 27% (256): the latency of the Allreduce across nodes becomes visible only when the work per rank is small. It is not the main term for the larger problems.
+* **The efficiency at $n=1$ is below 1** (0.69–0.91) because weak-scaling efficiency is normalised by the serial program's time at the base size, and the 1-rank MPI code is slower than the serial program at these sizes (by up to 44% for 2D $1024^2$; by 0–6% for the large strong-scaling problems). If the 1-rank MPI time were used as the baseline instead, all values would be higher by the same factor (for example 0.17/0.69 = 0.25 for 2D $1024^2$ at 256 ranks); we kept the serial program as baseline to be consistent with the definition of $T_s$ in Section 2.
+* **Gustafson's law:** the scaled speedups of 41–60 at 256 ranks correspond to a "serial fraction" of about 0.77–0.84, far from the 1–3% suggested by the Amdahl fits. This inconsistency is another sign that neither law's assumption (a fixed serial fraction) holds for a bandwidth-bound code, and that the bandwidth limit, not serial code, is what bounds the scaling.
 * As in Section 1.4, a real run needs more iterations as $N$ grows, so these figures compare time per iteration, not time to solution.
-
-> **PENDING (required):** 256-rank weak-scaling point (job `p3_weak`, queued). Expected to show the two-to-four-node step; the table and both figures will be updated.
 
 ### 4.3 Impact of communication
 
