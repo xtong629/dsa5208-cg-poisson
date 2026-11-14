@@ -10,7 +10,7 @@ subtitle: "DSA5208 Project 3 — DRAFT (sections marked TODO depend on cluster r
 | CHEN XINGTONG | A0357556N |
 | QIAN LONG | A0255547W |
 
-Source code: TODO: link to the public GitHub repository (the repository README explains how to build, run and reproduce every figure).
+Source code: <https://github.com/xtong629/dsa5208-cg-poisson> (the repository README explains how to build, run and reproduce every figure).
 
 ---
 
