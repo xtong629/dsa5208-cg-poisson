@@ -313,7 +313,18 @@ The serial binary needs more than 6 GB for 3D $N=512$, so the serial job is subm
 * **At large sizes the GPU is about 2.4× faster than the 36 cores:** 3D $N=384$ (56.6 M unknowns): 12.8 vs 31.0 ms per iteration; 2D $N=8192$: 13.7 vs 34.0 ms. Both are expected to be memory-bandwidth-bound, but we did not measure the bandwidths. We compare against 36 of the 72 cores because the GPU job gets 36 CPUs per GPU; against a whole CPU node (64 cores) the CPUs would probably look better, and the single-core serial times of Section 3 are not the right comparison either.
 * **Correctness:** the GPU self-test (`build/cuda --selftest`) passed on Vanda: 48/48 checks with 1 and 2 ranks, for both CUDA-aware device halos and host-staged halos, matching the CPU results to about $10^{-16}$ with identical iteration counts (first-login job, 14 Nov 2026). In the timing runs, the GPU and CPU runs agree on the $L^2$ error to 6 digits.
 
-> **PENDING (extra):** `gpu_multi` (2 GPUs on one node; job `p3_gpu_multi`, queued): strong scaling on 1–2 GPUs, overlap on/off, blocking, and **CUDA-aware (device) vs host-staged halos**. The cross-GPU path (two ranks on two different GPUs) has not been exercised on real data yet: the passing self-test placed both ranks on one GPU. Figures `fig_gpu_multi_2D` and `fig_gpu_multi_3D` do not exist yet, and the discussion of the benefit of CUDA-aware MPI over staging, of overlap, and of the Allreduce cost relative to the fast GPU compute is waiting for them.
+**Figures `fig_gpu_multi_2D`, `fig_gpu_multi_3D`: one and two GPUs of one node** (2D $N=8192$ and 3D $N=384$; one rank per GPU, 3 repetitions, median). Time per iteration in ms:
+
+| | 1 GPU | 2 GPUs, blocking | 2 GPUs, non-blocking | 2 GPUs, non-blocking + overlap | 2 GPUs, overlap, host-staged halos |
+|---|---|---|---|---|---|
+| 2D $N=8192$ | 13.76 | 7.12 | 7.07 | **6.92** | 6.92 |
+| 3D $N=384$ | 12.77 | 7.72 | 7.66 | 6.67 | **6.49** |
+
+* **Two GPUs give a speedup of 1.99× (2D) and 1.91–1.97× (3D), i.e. an efficiency of 0.96–0.99** (3D: 0.96 with device halos, 0.98 with staged halos, with overlap). The GPU work per iteration is large (13 ms) compared with the halo exchange and the Allreduce, which are small and nearly independent of the number of GPUs.
+* **Overlap helps in 3D, hardly in 2D.** Non-blocking exchange with overlap is 13% faster than non-blocking without overlap in 3D (6.67 vs 7.66 ms; the 3D halo is a whole plane of $384^2$ points) and 2% faster in 2D (the 2D halo is a single line). Blocking vs non-blocking without overlap differs by under 1%.
+* **CUDA-aware MPI did not beat host staging here.** With the device-pointer halo (CUDA-aware) and with staging through host memory the times are equal in 2D (6.92 ms both) and staging is 3% *faster* in 3D (6.49 vs 6.67 ms). We did not investigate why (it may depend on how HPC-X moves device memory between the two GPUs of this node); the practical conclusion for this machine is that the staged path is not slower, and we cannot claim a benefit from CUDA-aware MPI.
+* **Correctness of the cross-GPU path:** the 2-rank self-test inside this job, run with both A40s visible (rank $r$ uses GPU $r \bmod 2$, so the two ranks are on different GPUs), passed 48 of 48 checks for device and staged halos, with differences of at most $8\times10^{-16}$ from the CPU solution and identical iteration counts.
+* **Limits:** only two GPU counts (one node has 2 GPUs) and one problem size per dimension, so this is not a scaling curve; and the Allreduce between GPUs of different *nodes* (Ethernet) was not tested. We did not measure the Allreduce share of the GPU iteration separately.
 
 ---
 
