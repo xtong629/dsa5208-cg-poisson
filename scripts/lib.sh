@@ -109,7 +109,9 @@ run_mpi() {
 # hybrid launch: run_hybrid <ranks> <threads> <bin> args...
 run_hybrid() {
   local np="$1" th="$2"; shift 2
-  local bind="${HYBRID_BIND//\{T\}/$th}"
+  local bind="${HYBRID_BIND//\{T\}/$th}" cpn; cpn="$(cfg CORES_PER_NODE)"
+  case "$cpn" in (*[!0-9]*|"") cpn=$th ;; esac
+  bind="${bind//\{PPR\}/$(( cpn / th > 0 ? cpn / th : 1 ))}"
   PIN_THREADS="$th" OMP_NUM_THREADS="$th" OMP_PLACES="$(cfg OMP_PLACES)" OMP_PROC_BIND="$(cfg OMP_PROC_BIND)" \
     run_logged $MPIRUN -np "$np" $bind -x OMP_NUM_THREADS -x OMP_PLACES -x OMP_PROC_BIND -x PIN_THREADS $PIN "$REPO_ROOT/build/$1" "${@:2}"
 }
