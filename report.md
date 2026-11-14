@@ -201,47 +201,90 @@ in the same padded layout, and only scalars (dot products) go to the host.
   scaled speedup $= S + P\,n$.
   **Strong scaling:** fixed $N$, increasing $n$. **Weak scaling:** $N$ and $n$ increased together so that the number of points per rank is (approximately) constant; because $N(n)=\mathrm{round}(N_1 n^{1/d})$ is an integer, the efficiency is normalised by the exact points per rank
   (definition in `scripts/plot.py`).
-* **Machine:** all experiments (CPU and GPU) on the NUS Vanda cluster, so that $T_s$ and $T_p(n)$ come from the same hardware. The nodes are connected by **plain Ethernet** (TCP; the RDMA-capable ports of the NICs are down, so no InfiniBand/RoCE transport is available), and the measured latency of a one-double `MPI_Allreduce` on 2 nodes (8 ranks) is **about 52 µs**, against a few µs within a node; this explains the efficiency drop of the multi-node points in the scaling figures (the halo exchange and, above all, the two Allreduces per iteration become latency-bound). TODO: CPU model (record it from the run provenance files), cores per node (72 per node; 64 ranks per node are used), memory, interconnect, MPI library and version (NVHPC 26.1 / HPC-X Open MPI), compiler and flags, GPU model (A40) and CUDA version.
+* **Machine:** all experiments (CPU and GPU) were run on the NUS Vanda cluster, so that $T_s$ and $T_p(n)$ come from the same hardware. CPU jobs were restricted to the pure CPU nodes, so every CPU timing comes from the same model: **Intel Xeon Platinum 8452Y** (recorded in the provenance file of every run), 2 sockets × 36 cores, 512 GB per node. A job gets 64 of the 72 cores of a node (`ncpus=64`, exclusive node), so 64, 128 and 256 ranks fill 1, 2 and 4 nodes. PBS caps memory at 6 GB per requested core. MPI: HPC-X Open MPI 4.1.9a1 from the NVHPC 26.1 module (`nvc++`-backed `mpicxx`, `-O3 -std=c++17`); ranks are pinned with `taskset`. GPU: NVIDIA A40 (`sm_86`), CUDA 12.9, one rank per GPU, 36 CPU cores per GPU.
+  The nodes are connected by **plain Ethernet** (TCP; the RDMA-capable ports of the NICs are down, so no InfiniBand/RoCE transport is available). A one-double `MPI_Allreduce` takes about **52 µs** on 2 nodes with 4 ranks each and about **175 µs** on 2 nodes with 64 ranks each (Section 4.3), against 6 µs for 64 ranks inside one node. The interconnect therefore matters for the strong-scaling runs with little work per rank (Section 4.3), but it is *not* the main reason for the efficiency loss in weak scaling, which happens inside the first node (Section 4.2).
 * Timings from the development laptop are used only to check correctness and never appear in this report.
 
 ---
 
 ## 3 Serial scaling
 
-**TODO (insert after the `serial` experiment):**
+**Figure `fig_serial_scaling`** (left: time per CG iteration vs number of unknowns; right: time to reach tolerance vs number of unknowns; both axes logarithmic; 2D and 3D). Raw data: `results/vanda/serial.csv` (one CPU core of a pure CPU node, 3 repetitions, median).
 
-* **Figure `fig_serial_scaling`** (left: time per CG iteration vs number of unknowns; right: time to reach tolerance vs number of unknowns; both axes logarithmic; 2D and 3D).
-* **Table** of the serial runtimes $T_s$ used as baselines for the speedup/efficiency calculations (the $N$ used in Sections 4 and 5).
-* Discussion to write: time per iteration should grow linearly with the number of unknowns once the arrays exceed the caches (a departure at small sizes indicates cache effects); time to solution grows like unknowns$^{1+1/d}$ because the iteration count grows
-  like $N$ (Section 1.4); 3D has a more expensive iteration per unknown (7-point stencil, more memory traffic) but fewer unknowns for the same $N$.
+* **Time per iteration grows linearly with the number of unknowns once the arrays leave the caches.** At small sizes the cost per unknown is much lower: 1.5 ns per unknown for the 2D $N=256$ problem (65 k unknowns, cache-resident), against 4.7 ns for 2D $N=4096$ and 4.8 ns for $N=8192$ (17 M and 67 M unknowns). In 3D it rises from 3.3 ns ($N=64$) to 4.9 ns ($N=256$) and 5.6 ns ($N=512$). This 3–4× difference between cache-resident and memory-resident problems is the first sign that CG is limited by memory bandwidth; the same effect appears in the parallel runs (Section 4.1).
+* **2D and 3D cost almost the same per unknown** (curves in panel (a) lie on top of each other). We expected a 3D iteration to be noticeably more expensive per unknown (7-point instead of 5-point stencil); the measurement shows only a 4–17% difference at 17 M to 134 M unknowns, because the vector updates and dot products, which are the same in both dimensions, dominate (Section 4.3: in the solver they take more than half of the time).
+* **Time to solution** (panel (b)) grows like unknowns$^{1+1/d}$ (dashed guides) because the iteration count grows like $N$ (Section 1.4). The two panels together show why the parallel experiments use a fixed number of 100 iterations and report time per iteration.
+
+The baselines $T_s$ for Sections 4 and 5 are the serial runs at the sizes below (time for 100 iterations, from `figures/tables/strong_scaling.csv`):
+
+| problem | unknowns | $T_s$ (100 iterations) |
+|---|---|---|
+| 2D $N=4096$ | 16.8 M | 7.91 s |
+| 2D $N=8192$ | 67.1 M | 31.98 s |
+| 3D $N=256$ | 16.8 M | 8.20 s |
+| 3D $N=512$ | 134 M | 74.94 s |
+
+The serial binary needs more than 6 GB for 3D $N=512$, so the serial job is submitted with 2 cores (12 GB) to stay under the PBS memory cap per core; it still uses one thread (a first attempt with 1 core was killed by the memory limit and discarded).
+
+---
 
 ---
 
 ## 4 MPI scaling and efficiency
 
-**TODO: experimental setup paragraph** — rank counts (1…256, and 512 if available), problem sizes (strong: 2D $N=$ TODO, 3D $N=$ TODO; weak: TODO points per rank), process placement, how many ranks per node.
+**Setup.** Rank counts $n = 1, 2, 4, \dots, 256$ (powers of two; 64 ranks per node, so 128 and 256 ranks use 2 and 4 whole nodes; 512 ranks were not run). Each job has exclusive use of its nodes (`place=excl`), the code is pure MPI with one thread per rank, block decomposition, non-blocking halo exchange with overlap unless stated otherwise, fixed 100 CG iterations, 3 repetitions, median. Strong scaling: 2D $N=4096$ and $8192$ (16.8 M and 67.1 M unknowns), 3D $N=256$ and $512$ (16.8 M and 134 M unknowns); rank counts whose subdomain would exceed 17 M points are skipped to save core-hours, so the large problems start at 8 ranks. Weak scaling: constant points per rank, 2D $1024^2$ and $2048^2$, 3D $64^3$ and $128^3$ per rank, up to 128 ranks.
+
+> **PENDING (required):** the weak-scaling point at **256 ranks** (job `p3_weak`, 4 nodes) is still queued. All weak-scaling figures and tables below stop at 128 ranks and will be regenerated with `scripts/plot.py` when it arrives.
 
 ### 4.1 Strong scaling
 
-**TODO (`strong`):** **Figure `fig_strong_2D`**, **Figure `fig_strong_3D`** (runtime, speedup $T_s/T_p(n)$ and efficiency $T_s/(n T_p(n))$ vs $n$ on logarithmic axes) and **Table `figures/tables/strong_scaling.csv`**.
-Discuss: where efficiency drops and why (subdomain size at that $n$, share of communication from the breakdown in Section 4.3), the fitted Amdahl serial fraction $S$ and what it does and does not capture (it lumps communication and memory-bandwidth saturation into a single number),
-the effect of the node boundary (intra-node vs inter-node messages), and the difference between the small and the large problem.
+**Figure `fig_strong_2D`**, **Figure `fig_strong_3D`** (runtime, speedup $T_s/T_p(n)$ and efficiency $T_s/(nT_p(n))$ vs $n$ on logarithmic axes) and **Table `figures/tables/strong_scaling.csv`**.
+
+| problem | $n=8$ | $n=64$ | $n=128$ | $n=256$ |
+|---|---|---|---|---|
+| 2D $N=4096$ | 5.2× (0.65) | 19.1× (0.30) | 59.7× (0.47) | 169.5× (0.66) |
+| 2D $N=8192$ | 5.5× (0.69) | 17.0× (0.27) | 33.4× (0.26) | 63.4× (0.25) |
+| 3D $N=256$ | 4.9× (0.61) | 17.4× (0.27) | 51.7× (0.40) | 104.7× (0.41) |
+| 3D $N=512$ | 5.9× (0.74) | 18.0× (0.28) | 35.9× (0.28) | 69.9× (0.27) |
+
+(speedup $T_s/T_p(n)$, parallel efficiency in brackets).
+
+* **Efficiency collapses inside the first node.** With 1 to 4 ranks it is 0.9–1.0 (one MPI rank is within 6% of the serial program), at 8 ranks 0.6–0.7, and at 32–64 ranks it is only about 0.27–0.30 for *all four* problems, whether the subdomains are large or small. This is the signature of a memory-bandwidth-bound kernel: CG does very little arithmetic per byte moved, so once a few cores saturate the memory controllers of the socket, additional ranks on the same node bring little. The speedup saturates at about 17–19 on one node of 64 cores for every problem. This explanation is consistent with the serial measurement (Section 3) and with the breakdown (Section 4.3, where vector updates and stencil sweeps, both memory-bound, take most of the time at 8 ranks), but **we did not measure the node's memory bandwidth directly** (no STREAM-type test), so it remains the most plausible explanation rather than a proven one. A possible contributing factor: PBS allocated the 64 cores of a node as cores 0–56 plus every second core up to 70, which is probably not balanced between the two sockets (we did not check the NUMA layout of each node).
+* **Beyond one node, the small problems recover; the large ones do not.** For 2D $N=4096$ the efficiency rises again from 0.30 (64 ranks) to 0.66 (256 ranks), and for 3D $N=256$ from 0.27 to 0.41. Adding nodes adds memory bandwidth, and the subdomains become small enough to fit partly into the caches (the same effect that made small serial problems cheap per unknown). The large problems ($N=8192$ in 2D, $N=512$ in 3D) stay at about 0.25–0.28 from 64 ranks on, since their subdomains stay far larger than the caches.
+* **Amdahl's law fits poorly and its serial fraction should not be read literally.** The least-squares fits give $S = 0.0095$ and $0.026$ (2D $N=4096$, $8192$) and $0.016$ and $0.023$ (3D $N=256$, $512$), i.e. a predicted speedup limit of 40–100. The measured curves do not have the shape of Amdahl's law: they flatten at about 17 on one node (bandwidth saturation) and then *increase again* across nodes, so a single constant $S$ cannot describe them. $S$ lumps together true serial work (very little here; the code has no serial section apart from setup), communication, synchronisation and bandwidth saturation. We therefore report the fits as a summary of the data and do **not** claim that 1–3% of the program is inherently serial.
+* **Communication matters at 128–256 ranks for the smaller problems** (Section 4.3): the Allreduces take about 40% (128 ranks) and 60% (256 ranks) of an iteration for 3D $N=256$, and only 9–16% for 3D $N=512$.
+* **Noise:** the iteration time at 256 ranks is below 1 ms for the small problems, so single repetitions vary by up to 30–40% (for example 2D $N=4096$ at 128 ranks and 3D $N=256$ at 256 ranks); the table uses the median of three.
 
 ### 4.2 Weak scaling
 
-**TODO (`weak`):** **Figure `fig_weak_2D`**, **Figure `fig_weak_3D`** (time per iteration and weak-scaling efficiency vs $n$) and **Table `figures/tables/weak_scaling.csv`** (including the measured scaled speedup to compare with Gustafson's law).
-Discuss: which term grows with $n$ (expected: the Allreduce, $\propto \log n$, plus node-boundary effects), reminder that the number of iterations also grows with $N$ in a real run (Section 1.4), so we compare time per iteration.
+**Figure `fig_weak_2D`**, **Figure `fig_weak_3D`** (time per iteration and weak-scaling efficiency vs $n$) and **Table `figures/tables/weak_scaling.csv`** (measured scaled speedup; up to 128 ranks so far).
+
+| points per rank | $n=1$ | $n=8$ | $n=64$ | $n=128$ |
+|---|---|---|---|---|
+| 2D $1024^2$ | 0.69 | 0.45 | 0.17 | 0.17 |
+| 2D $2048^2$ | 0.83 | 0.62 | 0.24 | 0.23 |
+| 3D $64^3$ | 0.91 | 0.57 | 0.18 | 0.17 |
+| 3D $128^3$ | 0.74 | 0.47 | 0.19 | 0.19 |
+
+(weak-scaling efficiency; scaled speedup at 128 ranks: 22–30, against 128 for ideal Gustafson scaling).
+
+* **The time per iteration rises by a factor of 3.5–5.2 between 1 and 64 ranks, then stays flat from 64 to 128 ranks** (for example 3D $128^3$ per rank: 41.5 ms at 64 and 41.7 ms at 128; 2D $1024^2$: 18.9 and 19.0 ms). Going from one node to two nodes therefore costs almost nothing here, whereas going from 1 to 64 ranks inside one node costs a factor of 3.5–5. This is again the memory-bandwidth limit of Section 4.1: with weak scaling each rank brings its own data, the total memory traffic grows with $n$, but a node's memory bandwidth does not. The Allreduce (which grows with $n$) is only 8–9% of the iteration for $128^3$ per rank at 64 and 128 ranks, and about 18–21% for the small $64^3$ problem, so it is not the main term for the larger problem.
+* **The efficiency at $n=1$ is below 1** (0.69–0.91) because weak-scaling efficiency is normalised by the serial program's time at the base size, and the 1-rank MPI code is slower than the serial program at these sizes (by up to 44% for 2D $1024^2$; by 0–6% for the large strong-scaling problems). If the 1-rank MPI time were used as the baseline instead, all values would be higher by the same factor (for example 0.17/0.69 = 0.25 for 2D $1024^2$ at 128 ranks); we kept the serial program as baseline to be consistent with the definition of $T_s$ in Section 2.
+* **Gustafson's law:** the scaled speedups of 22–30 at 128 ranks correspond to a "serial fraction" of about 0.77–0.83, far from the 1–3% suggested by the Amdahl fits. This inconsistency is another sign that neither law's assumption (a fixed serial fraction) holds for a bandwidth-bound code, and that the bandwidth limit, not serial code, is what bounds the scaling.
+* As in Section 1.4, a real run needs more iterations as $N$ grows, so these figures compare time per iteration, not time to solution.
+
+> **PENDING (required):** 256-rank weak-scaling point (job `p3_weak`, queued). Expected to show the two-to-four-node step; the table and both figures will be updated.
 
 ### 4.3 Impact of communication
 
-**TODO (`strong`, `decomp_halo`):**
+**Figures:** `fig_comm_breakdown_2D`, `fig_comm_breakdown_3D` (time per iteration by section), `fig_allreduce_latency`, `fig_decomposition_2D`, `fig_decomposition_3D`, `fig_halo_variants_2D`, `fig_halo_variants_3D`.
 
-* **Figure `fig_comm_breakdown_2D`**, **Figure `fig_comm_breakdown_3D`**: time per iteration by section (stencil, halo exchange, Allreduce, vector updates, other) and as a fraction of the total.
-* **Figure `fig_allreduce_latency`**: time of one `MPI_Allreduce` of one double vs $n$ (micro-benchmark), and the time per Allreduce inside the solver.
-* **Figure `fig_decomposition_2D`**, **`fig_decomposition_3D`**: slab vs block — doubles sent per rank per halo exchange (the `halo_doubles` column), halo time and total time vs $n$; compare with the surface formulas of Section 2.1.
-* **Figure `fig_halo_variants_2D`**, **`fig_halo_variants_3D`**: blocking vs non-blocking vs non-blocking with overlap, for both decompositions; state whether overlap helped and relate to the progress caveat of Section 2.2.
+* **Where the time goes (3D $N=256$).** Share of an iteration spent in (stencil / halo / Allreduce / vector updates): 8 ranks 25% / 4% / 4% / 67%; 64 ranks 22% / 6% / 15% / 56%; 128 ranks 12% / 9% / 42% / 39%; 256 ranks 9% / 13% / 60% / 17%. For 2D $N=4096$ the picture is the same (Allreduce 17% at 64 ranks, 48% at 128, 64% at 256). For the large problem (3D $N=512$) the Allreduce is only 9% at 64 ranks and 16% at 256 ranks. So **for the smaller problems the Allreduce becomes the dominant cost at 128–256 ranks, more than the halo exchange** (13% at 256 ranks for 3D $N=256$): the halo volume shrinks with the subdomain surface, while the Allreduce time does not depend on the subdomain size and grows with the rank count and, across nodes, with the Ethernet latency.
+* **Allreduce latency** (`fig_allreduce_latency`). The micro-benchmark for one double grows slowly inside a node (0.08 µs for 1 rank, 2.5 µs for 8, 5.8 µs for 64) and jumps to about 130–180 µs once ranks sit on several nodes (128 and 256 ranks), a consequence of TCP over Ethernet (52 µs for 2 nodes with only 4 ranks each). **The time spent in the Allreduce inside the solver is much larger than the micro-benchmark** (0.2–2 ms per call, plotted as "incl. wait for slowest rank"), because the timer around the call also counts the time a rank waits for the slowest rank to arrive (load imbalance and memory-bandwidth variation between ranks). We did not separate waiting from transfer, so the "Allreduce" share in the breakdown overstates the pure network cost, particularly at 64 ranks inside one node, where the micro-benchmark is only 6 µs. The conclusion that the Allreduce is the dominant term at 256 ranks is therefore only qualitatively supported; a version with a barrier before the Allreduce would separate the two.
+* **Slab vs block** (`decomp_halo`, 2D $N=4096$ and 3D $N=256$, 4/16/64 ranks, one node). At 16 and 64 ranks the two decompositions are within about 1–2% of each other in total time. At 4 ranks the slab decomposition is clearly slower with blocking halo exchange (2D: 24.6 vs 22.1 ms; 3D: 26.7 vs 22.2 ms, i.e. 11–20%), and about 3–4% slower in 3D with the non-blocking variants. Block decomposition has the smaller halo surface (Section 2.1) but, inside one node, halo exchange is a memory copy and its cost is a small share of the iteration (2–6% at 8–64 ranks), so the choice barely matters at this scale. The multi-node comparison is still missing (see below).
+* **Blocking vs non-blocking vs overlap.** Differences between the three variants are within about 1–2% for 16 and 64 ranks, and overlap did not give a measurable gain; at 4 ranks overlap was even 1–4% slower for some cases. We expect overlap to matter only when the halo time is significant, i.e. across nodes; and Open MPI may not progress non-blocking transfers while the rank computes (Section 2.2), which we did not test separately.
 
-Discuss which of the two communication types dominates at which $n$, and why (halo: bandwidth/surface; Allreduce: latency, independent of subdomain size).
+> **PENDING (extra):** `decomp_halo` at **256 ranks** (4 nodes; job `p3_decomp_halo`, queued) is the experiment in which slab, block and overlap are most likely to differ, because halos then cross the Ethernet. Until it arrives, the claims above hold for one node only.
 
 ---
 
@@ -249,19 +292,29 @@ Discuss which of the two communication types dominates at which $n$, and why (ha
 
 ### 5.1 MPI+OpenMP
 
-**TODO (`hybrid`):** **Figure `fig_hybrid_2D`**, **Figure `fig_hybrid_3D`** — time per iteration and communication fraction at fixed total core counts (TODO: 64 and 256) for ranks × threads configurations, against the pure-MPI binary on the same cores.
-Discuss: trade-off between smaller halo surface/fewer Allreduce participants and thread overheads and NUMA effects; best configuration and why; effect of pinning and first touch (if a configuration with and without them was run, otherwise state that this was not measured).
+**Figure `fig_hybrid_2D`**, **Figure `fig_hybrid_3D`**. All configurations use 64 cores of one node ($n_\text{ranks}\times n_\text{threads}=64$); times per iteration in ms:
+
+| | MPI 64×1 | 32×2 | 16×4 | 8×8 | 4×16 |
+|---|---|---|---|---|---|
+| 2D $N=4096$ | 4.27 | 4.13 | 3.99 | **3.92** | 3.96 |
+| 3D $N=256$ | 4.88 | 4.55 | 4.48 | 4.84 | **4.36** |
+
+(the 64×1 hybrid binary measures 4.21 ms (2D) and 4.95 ms (3D); it matches the pure-MPI binary within 2%.)
+
+* **Hybrid is 3–11% faster than pure MPI on one node.** The best configurations are 8×8 for 2D (8% faster) and 4×16 for 3D (11% faster). Fewer ranks mean fewer and larger messages, fewer participants in the Allreduce, and less halo surface; against this, threads add fork–join overhead and possible NUMA effects. On one node the gains are modest because the memory bandwidth limit (Section 4.1) bounds all configurations alike, and because all ranks pin their threads to neighbouring cores with `taskset` (we did not measure unpinned runs, nor the effect of first-touch separately).
+* The differences between neighbouring configurations (for example 3D 8×8 vs 16×4) are of the same size as run-to-run noise, so the ranking of the middle configurations should not be over-interpreted; the clear result is that pure MPI (many ranks, one thread each) is the slowest or close to the slowest configuration.
+
+> **PENDING (extra):** the **256-core** hybrid comparison (4 nodes; job `p3_hybrid`, queued). Hybrid is expected to help most there, since fewer ranks mean a cheaper multi-node Allreduce; this has not been measured yet.
 
 ### 5.2 MPI+CUDA (GPU)
 
-**TODO (Vanda `gpu_sweep`, `gpu_multi`):**
+**Figure `fig_gpu_vs_cpu`**: one A40 GPU against 36 CPU cores (the CPU part of the same GPU node, Xeon Platinum 8452Y), time per iteration, 2D and 3D, for increasing problem size.
 
-* **Figure `fig_gpu_vs_cpu`**: one A40 GPU against one CPU node (same allocation) for a sweep of problem sizes, time per iteration and GPU speedup, 2D and 3D.
-* **Figure `fig_gpu_multi_2D`**, **`fig_gpu_multi_3D`**: strong scaling on 1…G GPUs; variants: overlap on/off, blocking, CUDA-aware vs host-staged halos.
-* Result of the GPU self-test (`build/cuda --selftest`) — TODO: pass/fail and the date/cluster it was run on.
+* **The GPU only wins for large problems.** Below roughly 2–7 million unknowns the CPU is faster (GPU speedup 0.3–0.7: for example 3D $N=128$: 0.54 ms on the GPU vs 0.28 ms on 36 CPU cores; 2D $N=1024$: 0.31 vs 0.10 ms). The GPU time per iteration is almost flat (0.1–0.3 ms) for small problems, which is the cost of kernel launches and host synchronisation (every dot product ends with a device-to-host copy). The crossover lies between $N=2048$ and $4096$ in 2D (0.94 vs 0.59 ms at $N=2048$; 3.5 vs 8.3 ms at $N=4096$) and between $N=128$ and $192$ in 3D (0.54 vs 0.28 ms; 1.6 vs 2.8 ms).
+* **At large sizes the GPU is about 2.4× faster than the 36 cores:** 3D $N=384$ (56.6 M unknowns): 12.8 vs 31.0 ms per iteration; 2D $N=8192$: 13.7 vs 34.0 ms. Both are expected to be memory-bandwidth-bound, but we did not measure the bandwidths. We compare against 36 of the 72 cores because the GPU job gets 36 CPUs per GPU; against a whole CPU node (64 cores) the CPUs would probably look better, and the single-core serial times of Section 3 are not the right comparison either.
+* **Correctness:** the GPU self-test (`build/cuda --selftest`) passed on Vanda: 48/48 checks with 1 and 2 ranks, for both CUDA-aware device halos and host-staged halos, matching the CPU results to about $10^{-16}$ with identical iteration counts (first-login job, 14 Nov 2026). In the timing runs, the GPU and CPU runs agree on the $L^2$ error to 6 digits.
 
-Discuss: below which problem size the GPU is slower than the CPU node (kernel-launch and host-synchronisation overhead per iteration — each dot product needs a device-to-host copy), memory-bandwidth bound behaviour at large sizes,
-cost of the Allreduce relative to the (very fast) GPU compute, benefit of CUDA-aware MPI over staging, benefit of overlap.
+> **PENDING (extra):** `gpu_multi` (2 GPUs on one node; job `p3_gpu_multi`, queued): strong scaling on 1–2 GPUs, overlap on/off, blocking, and **CUDA-aware (device) vs host-staged halos**. The cross-GPU path (two ranks on two different GPUs) has not been exercised on real data yet: the passing self-test placed both ranks on one GPU. Figures `fig_gpu_multi_2D` and `fig_gpu_multi_3D` do not exist yet, and the discussion of the benefit of CUDA-aware MPI over staging, of overlap, and of the Allreduce cost relative to the fast GPU compute is waiting for them.
 
 ---
 
