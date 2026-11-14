@@ -18,10 +18,13 @@ Tests
   4  All halo variants (blocking, non-blocking with/without overlap) agree with each other.
   5  Awkward sizes: N not divisible by the process grid, and subdomains thinner than 3 points
      (no inner region, shell covers everything).
+  6  Negative control: a deliberately loosely converged parallel solution (tolerance 1e-4) compared with the tightly
+     converged serial reference must be REJECTED by the same comparison, i.e. the comparison can fail.
+     (`python3 scripts/validate.py negative` runs only this test.)
 Environment: MPIRUN (default "mpirun"), MPIRUN_FLAGS (e.g. "--oversubscribe"), VALIDATE_NP (rank
 counts, default "1,2,4,8"), OMP_THREADS (hybrid).
 """
-import csv, math, os, subprocess, sys, tempfile
+import csv, math, os, signal, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MPIRUN = os.environ.get("MPIRUN", "mpirun").split()
@@ -164,10 +167,26 @@ def test5(binary):
                       f"{dim}D N={N} np={np_} {decomp} {halo}{'+ov' if ov else ''}: diff {float(r['diff_serial']):.1e}, iters {r['iters']} (serial {sref['iters']})")
 
 
+def test6(binary="mpi"):
+    print(f"[test 6] negative control: loose-tolerance {binary} run must differ from the tight serial reference")
+    for dim, N in ((2, 63), (3, 15)):
+        sref, dump = serial_ref(dim, N)
+        r = par(binary, 4, dim, N, "block", "nonblocking", 1, dump, tol="1e-4")
+        if r is None: continue
+        d = float(r["diff_serial"])
+        check(d > 100 * TOL_SOL, f"{dim}D N={N} np=4, tol 1e-4 vs 1e-13: diff {d:.1e} is rejected (threshold {TOL_SOL:.0e}), iters {r['iters']} vs serial {sref['iters']}")
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     what = args[0] if args else "all"
     bins = []
+    if what == "negative":
+        if not os.path.exists(os.path.join(ROOT, "build/mpi")):
+            print("build/mpi not found - run `make mpi` first"); sys.exit(2)
+        test6("mpi")
+        print("\nNEGATIVE CONTROL PASSED" if not failures else f"\nNEGATIVE CONTROL FAILED ({len(failures)} failures)")
+        sys.exit(1 if failures else 0)
     if what in ("serial", "all"): bins.append("serial")
     if what in ("mpi", "all"): bins.append("mpi")
     if what == "hybrid" or (what == "all" and os.path.exists(os.path.join(ROOT, "build/hybrid"))): bins.append("hybrid")
@@ -178,6 +197,7 @@ def main():
         if b != "serial":
             tests_parallel(b)
             test5(b)
+            if b == "mpi": test6(b)
     print("\nALL VALIDATION TESTS PASSED" if not failures else f"\nVALIDATION FAILED ({len(failures)} failures)")
     sys.exit(1 if failures else 0)
 
