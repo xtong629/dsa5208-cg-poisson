@@ -36,15 +36,24 @@ weak_N() { awk -v b="$1" -v n="$2" -v d="$3" 'BEGIN { printf "%d", b * exp(log(n
 # unknowns = N^dim
 unknowns() { awk -v n="$1" -v d="$2" 'BEGIN { printf "%.0f", n ^ d }'; }
 
+# eval a cluster environment/module line. Site init files (e.g. /app1/ebenv reads $PS1) are not
+# written for `set -u`, so nounset is switched off just for the duration of the call.
+env_eval() {
+  local had_u=0; case $- in *u*) had_u=1; set +u;; esac
+  eval "$1"; local rc=$?
+  [ "$had_u" = 1 ] && set -u
+  return $rc
+}
+
 # prepare the environment for running jobs on a cluster: modules, directories, CSV path
 init_run() {               # init_run <experiment> [cpu|gpu]
   EXP="$1"; KIND="${2:-cpu}"
   cd "${PBS_O_WORKDIR:-$REPO_ROOT}" || exit 1
   local init mods
   init="$(cfg ENV_INIT)"
-  [ -n "$init" ] && eval "$init"
+  [ -n "$init" ] && env_eval "$init"
   if [ "$KIND" = "gpu" ]; then mods="$(cfg MODULES_GPU)"; else mods="$(cfg MODULES_CPU)"; fi
-  [ -n "$mods" ] && [ "$mods" != "CHANGE_ME" ] && eval "$mods"
+  [ -n "$mods" ] && [ "$mods" != "CHANGE_ME" ] && env_eval "$mods"
   RESDIR="${RESULTS_DIR:-results}/$CLUSTER"
   [ -n "${SMOKE:-}" ] && RESDIR="${RESULTS_DIR:-results}/local_smoke"
   mkdir -p "$RESDIR"

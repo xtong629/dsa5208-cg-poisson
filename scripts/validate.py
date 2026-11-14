@@ -45,7 +45,7 @@ def check(cond, msg):
 def run(cmd, env=None):
     e = dict(os.environ)
     if env: e.update(env)
-    r = subprocess.run(cmd, cwd=ROOT, env=e, capture_output=True, text=True)
+    r = subprocess.run(cmd, cwd=ROOT, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)  # py3.6-compatible
     if r.returncode != 0:
         print("COMMAND FAILED:", " ".join(cmd), "\n", r.stdout, r.stderr)
         failures.append("command failed: " + " ".join(cmd))

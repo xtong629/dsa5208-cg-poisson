@@ -63,7 +63,8 @@ $(BUILD)/cuda: src/cuda_main.cu $(CUDA_SRC) | $(BUILD)
 CUDA_ALT_HOSTCXX ?= g++
 MPI_INC          ?= $(filter -I%,$(shell $(MPICXX) --showme:compile 2>/dev/null))
 CUDA_HOME        ?= $(patsubst %/bin/nvcc,%,$(shell command -v $(NVCC) 2>/dev/null))
-CUDA_ALT_LDFLAGS ?= -L$(CUDA_HOME)/lib64 -lcudart -Wl,-rpath,$(CUDA_HOME)/lib64
+CUDA_ALT_LDFLAGS ?= -L$(CUDA_HOME)/lib64 -L$(CUDA_HOME)/targets/x86_64-linux/lib -lcudart \
+                    -Wl,-rpath,$(CUDA_HOME)/lib64 -Wl,-rpath,$(CUDA_HOME)/targets/x86_64-linux/lib
 cuda-alt: | $(BUILD)
 	@test -n "$(MPI_INC)" || echo "note: no MPI include flags found; pass MPI_INC=-I/path/to/mpi/include if the compile fails"
 	$(NVCC) -c -O3 -std=c++17 -arch=$(CUDA_ARCH) -ccbin $(CUDA_ALT_HOSTCXX) $(MPI_INC) -DUSE_MPI -DUSE_CUDA $(CUDA_EXTRA) -Isrc -o $(BUILD)/cuda_main.o src/cuda_main.cu

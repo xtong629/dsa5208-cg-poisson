@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 source scripts/lib.sh
 load_config "${1:?usage: first_login_build.sh <atlas|vanda|local> [cpu|gpu|both]}"
 PART="${2:-}"; [ -z "$PART" ] && { [ "$CLUSTER" = vanda ] && PART=both || PART=cpu; }
-init="$(cfg ENV_INIT)"; [ -n "$init" ] && eval "$init"
+init="$(cfg ENV_INIT)"; [ -n "$init" ] && env_eval "$init"
 MPIRUN="$(cfg MPIRUN)"
 SUMMARY=""
 step() { # step <label> <command...>
@@ -21,7 +21,7 @@ step() { # step <label> <command...>
 
 if [ "$PART" = cpu ] || [ "$PART" = both ]; then
   mods="$(cfg MODULES_CPU)"
-  if [ -n "$mods" ] && [ "$mods" != CHANGE_ME ]; then eval "$mods"; else echo "note: ${CLUSTER_U}_MODULES_CPU not set; using the current environment"; fi
+  if [ -n "$mods" ] && [ "$mods" != CHANGE_ME ]; then env_eval "$mods"; else echo "note: ${CLUSTER_U}_MODULES_CPU not set; using the current environment"; fi
   step "CPU: mpicxx found ($(command -v mpicxx || echo none))" command -v mpicxx
   step "CPU: make serial mpi" make serial mpi $(cfg MAKE_FLAGS)
   step "CPU: make hybrid (OpenMP)" make hybrid $(cfg MAKE_FLAGS)
@@ -32,7 +32,7 @@ fi
 if [ "$PART" = gpu ] || [ "$PART" = both ]; then
   if [ "$CLUSTER" != vanda ]; then echo "GPU part only on vanda"; else
     mods="$(cfg MODULES_GPU)"
-    eval "$mods"
+    env_eval "$mods"
     echo; echo "GPU environment: nvcc=$(command -v nvcc || echo none)  mpicxx=$(command -v mpicxx || echo none)"
     nvidia-smi -L 2>&1 | head -4 || true
     ARCH="CUDA_ARCH=$CUDA_ARCH $(cfg CUDA_MAKE_FLAGS)"

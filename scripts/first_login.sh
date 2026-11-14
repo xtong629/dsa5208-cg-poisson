@@ -15,7 +15,7 @@ MODE=default; BATCH=0
 for a in "$@"; do case "$a" in info) MODE=info ;; --batch) BATCH=1 ;; esac; done
 OUT="results/first_login_$CLUSTER"; mkdir -p "$OUT"
 
-init="$(cfg ENV_INIT)"; [ -n "$init" ] && { echo "+ $init"; eval "$init"; }
+init="$(cfg ENV_INIT)"; [ -n "$init" ] && { echo "+ $init"; env_eval "$init"; }
 
 echo "== system -> $OUT/system.txt"
 { hostname; date; uname -a; echo; (lscpu 2>/dev/null || sysctl -a 2>/dev/null | grep -E 'machdep.cpu|hw.ncpu') ; echo; nproc 2>/dev/null; free -g 2>/dev/null; command -v nvidia-smi >/dev/null && nvidia-smi; } > "$OUT/system.txt" 2>&1
