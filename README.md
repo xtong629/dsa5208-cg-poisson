@@ -2,6 +2,8 @@
 
 Project 3 of NUS DSA5208 *Scalable Distributed Computing for Data Science*.
 
+Authors: CHEN XINGTONG (A0357556N), QIAN LONG (A0255547W).
+
 We solve the Poisson equation `-Δu = f` on the unit square (2D, 5-point stencil) and unit cube
 (3D, 7-point stencil) with homogeneous Dirichlet boundary conditions, using a **matrix-free
 Conjugate Gradient (CG)** method, and study how different ways of parallelising it affect

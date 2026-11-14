@@ -7,9 +7,8 @@ subtitle: "DSA5208 Project 3 — DRAFT (sections marked TODO depend on cluster r
 
 | Name | Student ID |
 |---|---|
-| TODO: name 1 | TODO: ID 1 |
-| TODO: name 2 | TODO: ID 2 |
-| TODO: name 3 | TODO: ID 3 |
+| CHEN XINGTONG | A0357556N |
+| QIAN LONG | A0255547W |
 
 Source code: TODO: link to the public GitHub repository (the repository README explains how to build, run and reproduce every figure).
 
@@ -320,18 +319,15 @@ The serial binary needs more than 6 GB for 3D $N=512$, so the serial job is subm
 
 ## 6 Validation
 
-We validate with a small number of well-chosen test categories (implemented in `scripts/validate.py`; the GPU version is `build/cuda --selftest`). Each category sweeps a small parameter grid. The numbers
-quoted below come from the development runs and **are to be regenerated on the cluster before submission** (TODO).
+We validate with a small number of well-chosen test categories (implemented in `scripts/validate.py`; the GPU version is `build/cuda --selftest`). The results below come from the runs on a Vanda compute node (a PBS job on a CPU node, HPC-X Open MPI 4.1.9a1 from the NVHPC 26.1 module; the GPU self-test on an NVIDIA A40 node), not from the development laptop. The CPU run used the `--quick` grid of `validate.py`: sizes up to 2D $N=127$ and 3D $N=31$, 1, 2 and 4 ranks, and 1 or 2 OpenMP threads per rank for the hybrid code. Every check passed.
 
-1. **Convergence of the discretisation error.** The error against the exact manufactured solution decreases as $O(h^2)$: the observed order $\log(e_{N_1}/e_{N_2})/\log(h_1/h_2)$ between consecutive grids is $2.00$ in the $L^2$ norm
-   (e.g. 2D $N=127\to255$, 3D $N=31\to63$) in both dimensions, for serial and parallel runs. In the same runs, the residual from the CG recurrence agrees with the explicitly recomputed $\|b - Ax\|/\|b\|$, which checks that the recurrences have not drifted.
-2. **Parallel equals serial.** The relative difference $\|x_\text{par} - x_\text{ser}\|/\|x_\text{ser}\|$ between the distributed solution and the serial one is at rounding level — at most $2.5\times10^{-15}$ over all runs — for 1, 2, 4 and 8 ranks and for several thread counts in the hybrid
-   code (tolerance used in the test: $10^{-9}$). Iteration counts agree with the serial count (identical in every run we made; the test allows $\pm 2$ because rounding differs with the order of summation).
-3. **Decomposition and halo-variant equivalence.** Slab and block decompositions, and blocking, non-blocking and overlapped halo exchange, give the same iteration count and the same error norm to $10^{-10}$ relative (e.g. 159 iterations for every variant of the 3D $N=31$ problem).
-4. **Awkward sizes.** $N$ not divisible by the process grid (2D $N=50$ on 6 ranks, 3D $N=29$ on 8 ranks) and subdomains thinner than three points so that the inner box is empty and the boundary shell covers everything (3D $N=4$ and $N=5$ on 8 ranks): differences from serial below $10^{-15}$ (largest: $7\times10^{-16}$).
-5. **Negative control.** To confirm that the comparison can fail, we compared a tightly converged parallel solution with a deliberately loosely converged serial solution (tolerance $10^{-4}$): the test reports a difference of $3\times10^{-6}$, as it should.
+1. **Convergence of the discretisation error.** The error against the exact manufactured solution decreases as $O(h^2)$: the observed order $\log(e_{N_1}/e_{N_2})/\log(h_1/h_2)$ between consecutive grids is between $1.997$ and $2.000$ in the $L^2$ norm (2D $N=15\to31\to63\to127$, 3D $N=7\to15\to31$) and between $1.98$ and $2.00$ in the maximum norm. In the same runs the true residual $\|b-Ax\|/\|b\|$, recomputed explicitly from the final solution, is below the tolerance ($5\times10^{-13}$ to $3\times10^{-12}$ for the 2D cases), which checks that the CG recurrence has not drifted from the true residual.
+2. **Parallel equals serial.** The relative difference $\|x_\text{par}-x_\text{ser}\|/\|x_\text{ser}\|$ between the distributed solution and the serial one is at rounding level — at most $8.4\times10^{-16}$ over all comparisons — for 1, 2 and 4 ranks and, for the hybrid code, 1 and 2 threads per rank (tolerance used in the test: $10^{-9}$). The iteration count equals the serial count in every run (the test allows $\pm2$ because the summation order differs).
+3. **Decomposition and halo-variant equivalence.** Slab and block decompositions, and blocking, non-blocking and overlapped halo exchange, give the same iteration count and the same error norm in every case (2D $N=63$, 3D $N=15$), for the MPI and for the hybrid binary.
+4. **Awkward sizes.** Subdomains thinner than three points, so that the inner box is empty and the boundary shell covers everything (3D $N=5$ and 2D $N=10$ on 4 ranks, both decompositions, with and without overlap): differences from serial below $4\times10^{-16}$ and identical iteration counts.
+5. **GPU self-test on an A40.** `build/cuda --selftest` passed 48 of 48 checks with 1 rank and with 2 ranks (both on the same GPU), for slab and block decompositions, blocking / non-blocking / overlapped halos, and both CUDA-aware device halos and host-staged halos, against the CPU solution: differences between $1.9\times10^{-16}$ and $7.9\times10^{-16}$ and identical iteration counts (for example 247 for 2D $N=63$, 159 for 3D $N=31$).
 
-TODO: GPU self-test result; one sentence stating that the same tests were run on the cluster with the cluster's MPI library.
+> **Not yet run on the cluster:** the *full* grid of `validate.py` (more rank counts, larger sizes) and the **negative control** (a deliberately loosely converged serial solution that the comparison must reject, to show that the test can fail). Both belong to the full mode only; the quick mode used on Vanda does not include them. The cross-device GPU path (two ranks on two different GPUs) is tested by `gpu_multi` (Section 5.2), not by this self-test.
 
 ---
 
