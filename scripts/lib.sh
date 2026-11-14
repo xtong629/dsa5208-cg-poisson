@@ -8,7 +8,19 @@ load_config() {            # load_config <cluster>   (atlas | vanda | local)
   CLUSTER_U="$(echo "$CLUSTER" | tr '[:lower:]' '[:upper:]')"
   # shellcheck disable=SC1091
   source "$REPO_ROOT/config/cluster.env"
+  # personal, git-ignored overrides (e.g. VANDA_PROJECT=<your PBS project>): never commit those
+  # shellcheck disable=SC1091
+  [ -f "$REPO_ROOT/config/cluster.local.env" ] && source "$REPO_ROOT/config/cluster.local.env"
   if [ -n "${SMOKE:-}" ]; then SMOKE_OVERRIDES; fi
+}
+
+# mpirun command from the config. "{HOSTFILE}" becomes $PBS_NODEFILE inside a PBS job; outside one the
+# "--hostfile {HOSTFILE}" option is dropped. (This Open MPI has no PBS/tm support: without --hostfile it runs
+# every rank on the first node of a multi-node job.)
+mpirun_cmd() {              # mpirun_cmd [cpu|gpu]
+  local m; m="$(cfg MPIRUN)"
+  if [ "${1:-cpu}" = gpu ] && [ -n "$(cfg GPU_MPIRUN)" ]; then m="$(cfg GPU_MPIRUN)"; fi
+  if [ -n "${PBS_NODEFILE:-}" ]; then echo "${m//\{HOSTFILE\}/$PBS_NODEFILE}"; else echo "${m//--hostfile \{HOSTFILE\}/}"; fi
 }
 
 cfg() {                    # cfg NAME -> value of <CLUSTER>_NAME
@@ -58,9 +70,10 @@ init_run() {               # init_run <experiment> [cpu|gpu]
   [ -n "${SMOKE:-}" ] && RESDIR="${RESULTS_DIR:-results}/local_smoke"
   mkdir -p "$RESDIR"
   CSV="$RESDIR/$EXP.csv"
-  MPIRUN="$(cfg MPIRUN)"
+  MPIRUN="$(mpirun_cmd "$KIND")"
   MPI_BIND="$(cfg MPI_BIND)"
   HYBRID_BIND="$(cfg HYBRID_BIND)"
+  PIN="$(cfg PIN)"            # optional per-rank launcher wrapper (scripts/pin.sh), see config/cluster.env
   FAILS="$RESDIR/$EXP.failures.txt"
   # provenance of this run (tiny text file next to the CSV; results/ is git-ignored)
   {
@@ -68,6 +81,9 @@ init_run() {               # init_run <experiment> [cpu|gpu]
     echo "git=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     echo "pbs_jobid=${PBS_JOBID:-none} np_list=${NP_LIST_JOB:-}"
     [ -n "${PBS_NODEFILE:-}" ] && sort -u "$PBS_NODEFILE" | tr '\n' ' ' && echo
+    # hardware record: the cluster mixes node types, so every run states which CPU it ran on
+    echo "cpu_model=$(lscpu 2>/dev/null | awk -F: '/Model name/ { gsub(/^ +/, "", $2); print $2; exit }')  cpus_allowed=$(taskset -pc $$ 2>/dev/null | sed 's/.*: *//')"
+    echo "gpus=$(nvidia-smi -L 2>/dev/null | sed 's/ (UUID.*//' | tr '\n' ';')"
     echo "OMP/MPI: $($MPIRUN --version 2>&1 | head -1)"
   } >> "$RESDIR/$EXP.meta.txt" 2>/dev/null
 }
@@ -87,15 +103,15 @@ run_logged() {
 # MPI launch: run_mpi <np> <bin> args...   (pure MPI, 1 thread per rank)
 run_mpi() {
   local np="$1"; shift
-  OMP_NUM_THREADS=1 run_logged $MPIRUN -np "$np" $MPI_BIND "$REPO_ROOT/build/$1" "${@:2}"
+  PIN_THREADS=1 OMP_NUM_THREADS=1 run_logged $MPIRUN -np "$np" $MPI_BIND -x OMP_NUM_THREADS -x PIN_THREADS $PIN "$REPO_ROOT/build/$1" "${@:2}"
 }
 
 # hybrid launch: run_hybrid <ranks> <threads> <bin> args...
 run_hybrid() {
   local np="$1" th="$2"; shift 2
   local bind="${HYBRID_BIND//\{T\}/$th}"
-  OMP_NUM_THREADS="$th" OMP_PLACES="$(cfg OMP_PLACES)" OMP_PROC_BIND="$(cfg OMP_PROC_BIND)" \
-    run_logged $MPIRUN -np "$np" $bind "$REPO_ROOT/build/$1" "${@:2}"
+  PIN_THREADS="$th" OMP_NUM_THREADS="$th" OMP_PLACES="$(cfg OMP_PLACES)" OMP_PROC_BIND="$(cfg OMP_PROC_BIND)" \
+    run_logged $MPIRUN -np "$np" $bind -x OMP_NUM_THREADS -x OMP_PLACES -x OMP_PROC_BIND -x PIN_THREADS $PIN "$REPO_ROOT/build/$1" "${@:2}"
 }
 
 # is a run worth doing? (skip subdomains that are tiny or too large for the memory/time budget)

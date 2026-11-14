@@ -42,10 +42,24 @@ def check(cond, msg):
         failures.append(msg)
 
 
+RUN_TIMEOUT = int(os.environ.get("VALIDATE_TIMEOUT", "120"))   # seconds per command: a hung MPI launch must not hang the job
+
+
 def run(cmd, env=None):
     e = dict(os.environ)
     if env: e.update(env)
-    r = subprocess.run(cmd, cwd=ROOT, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)  # py3.6-compatible
+    # own process group, so that on a timeout mpirun AND its ranks are killed (no orphans left behind)
+    proc = subprocess.Popen(cmd, cwd=ROOT, env=e, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            universal_newlines=True, start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
+        print("COMMAND TIMED OUT after %d s: %s" % (RUN_TIMEOUT, " ".join(cmd)))
+        failures.append("timeout: " + " ".join(cmd))
+        return False
+    r = subprocess.CompletedProcess(cmd, proc.returncode, out, err)
     if r.returncode != 0:
         print("COMMAND FAILED:", " ".join(cmd), "\n", r.stdout, r.stderr)
         failures.append("command failed: " + " ".join(cmd))
@@ -100,6 +114,9 @@ def test1(binary):
                 run(MPIRUN + MPIFLAGS + ["-np", "2" if binary == "hybrid" else "4", f"build/{binary}",
                      "--dim", str(dim), "--N", str(N), "--tol", "1e-12", "--csv", c],
                     {"OMP_NUM_THREADS": "2", "OMP_WAIT_POLICY": "passive"})
+        if not os.path.exists(c):
+            failures.append(f"{binary} {dim}D: no output (see the failed command above)")
+            continue
         order_test(list(csv.DictReader(open(c))), f"{binary} {dim}D")
 
 

@@ -201,14 +201,14 @@ in the same padded layout, and only scalars (dot products) go to the host.
   scaled speedup $= S + P\,n$.
   **Strong scaling:** fixed $N$, increasing $n$. **Weak scaling:** $N$ and $n$ increased together so that the number of points per rank is (approximately) constant; because $N(n)=\mathrm{round}(N_1 n^{1/d})$ is an integer, the efficiency is normalised by the exact points per rank
   (definition in `scripts/plot.py`).
-* **Machines:** CPU experiments on Atlas, GPU experiments on Vanda. TODO: node type, cores per node, memory, interconnect, MPI library and version, compiler and flags, GPU model (A40) and CUDA version.
+* **Machine:** all experiments (CPU and GPU) on the NUS Vanda cluster, so that $T_s$ and $T_p(n)$ come from the same hardware. TODO: CPU model, cores per node (72 per node; 64 ranks per node are used), memory, interconnect, MPI library and version (NVHPC 26.1 / HPC-X Open MPI), compiler and flags, GPU model (A40) and CUDA version.
 * Timings from the development laptop are used only to check correctness and never appear in this report.
 
 ---
 
 ## 3 Serial scaling
 
-**TODO (insert after the Atlas `serial` experiment):**
+**TODO (insert after the `serial` experiment):**
 
 * **Figure `fig_serial_scaling`** (left: time per CG iteration vs number of unknowns; right: time to reach tolerance vs number of unknowns; both axes logarithmic; 2D and 3D).
 * **Table** of the serial runtimes $T_s$ used as baselines for the speedup/efficiency calculations (the $N$ used in Sections 4 and 5).
@@ -223,18 +223,18 @@ in the same padded layout, and only scalars (dot products) go to the host.
 
 ### 4.1 Strong scaling
 
-**TODO (Atlas `strong`):** **Figure `fig_strong_2D`**, **Figure `fig_strong_3D`** (runtime, speedup $T_s/T_p(n)$ and efficiency $T_s/(n T_p(n))$ vs $n$ on logarithmic axes) and **Table `figures/tables/strong_scaling.csv`**.
+**TODO (`strong`):** **Figure `fig_strong_2D`**, **Figure `fig_strong_3D`** (runtime, speedup $T_s/T_p(n)$ and efficiency $T_s/(n T_p(n))$ vs $n$ on logarithmic axes) and **Table `figures/tables/strong_scaling.csv`**.
 Discuss: where efficiency drops and why (subdomain size at that $n$, share of communication from the breakdown in Section 4.3), the fitted Amdahl serial fraction $S$ and what it does and does not capture (it lumps communication and memory-bandwidth saturation into a single number),
 the effect of the node boundary (intra-node vs inter-node messages), and the difference between the small and the large problem.
 
 ### 4.2 Weak scaling
 
-**TODO (Atlas `weak`):** **Figure `fig_weak_2D`**, **Figure `fig_weak_3D`** (time per iteration and weak-scaling efficiency vs $n$) and **Table `figures/tables/weak_scaling.csv`** (including the measured scaled speedup to compare with Gustafson's law).
+**TODO (`weak`):** **Figure `fig_weak_2D`**, **Figure `fig_weak_3D`** (time per iteration and weak-scaling efficiency vs $n$) and **Table `figures/tables/weak_scaling.csv`** (including the measured scaled speedup to compare with Gustafson's law).
 Discuss: which term grows with $n$ (expected: the Allreduce, $\propto \log n$, plus node-boundary effects), reminder that the number of iterations also grows with $N$ in a real run (Section 1.4), so we compare time per iteration.
 
 ### 4.3 Impact of communication
 
-**TODO (Atlas `strong`, `decomp_halo`):**
+**TODO (`strong`, `decomp_halo`):**
 
 * **Figure `fig_comm_breakdown_2D`**, **Figure `fig_comm_breakdown_3D`**: time per iteration by section (stencil, halo exchange, Allreduce, vector updates, other) and as a fraction of the total.
 * **Figure `fig_allreduce_latency`**: time of one `MPI_Allreduce` of one double vs $n$ (micro-benchmark), and the time per Allreduce inside the solver.
@@ -249,7 +249,7 @@ Discuss which of the two communication types dominates at which $n$, and why (ha
 
 ### 5.1 MPI+OpenMP
 
-**TODO (Atlas `hybrid`):** **Figure `fig_hybrid_2D`**, **Figure `fig_hybrid_3D`** — time per iteration and communication fraction at fixed total core counts (TODO: 64 and 256) for ranks × threads configurations, against the pure-MPI binary on the same cores.
+**TODO (`hybrid`):** **Figure `fig_hybrid_2D`**, **Figure `fig_hybrid_3D`** — time per iteration and communication fraction at fixed total core counts (TODO: 64 and 256) for ranks × threads configurations, against the pure-MPI binary on the same cores.
 Discuss: trade-off between smaller halo surface/fewer Allreduce participants and thread overheads and NUMA effects; best configuration and why; effect of pinning and first touch (if a configuration with and without them was run, otherwise state that this was not measured).
 
 ### 5.2 MPI+CUDA (GPU)

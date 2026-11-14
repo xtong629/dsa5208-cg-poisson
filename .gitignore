@@ -12,3 +12,5 @@ results/
 __pycache__/
 .DS_Store
 figures_localtest/
+# personal overrides of config/cluster.env (project name = username)
+config/cluster.local.env

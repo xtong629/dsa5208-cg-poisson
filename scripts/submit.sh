@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # submit.sh -- turn config/cluster.env into qsub commands (one PBS job per experiment tier).
-#   bash scripts/submit.sh <atlas|vanda> <experiment|cpu|gpu|all> [--dry-run] [--preview]
+#   bash scripts/submit.sh <atlas|vanda> <experiment|essential|comparisons|cpu|gpu|all> [--dry-run] [--preview]
+#     essential   = serial strong weak gpu_sweep gpu_multi   (what the grading needs first: baseline, scaling, GPU)
+#     comparisons = decomp_halo hybrid                       (submit after the essential results are in)
 #   experiments: serial strong weak decomp_halo hybrid gpu_sweep gpu_multi
 #   --dry-run : print the qsub commands and the core-hour upper bound (cores x walltime), submit nothing
-#   --allow-vanda-cpu : submit CPU experiments on Vanda too (default: Vanda is reserved for GPU runs; use Atlas)
+#   --no-vanda-cpu : on Vanda submit only the GPU experiments (default: CPU experiments run on Vanda too)
 #   --preview : like --dry-run but with assumed cluster numbers (64 cores/node ...) while
 #               config/cluster.env still holds CHANGE_ME -- to look at the job plan before the cluster is known
 # JOB_SPLIT=tiered (default): one job per node count so a 1-node run does not hold a 4-node allocation.
@@ -12,8 +14,8 @@ cd "$(dirname "$0")/.."
 source scripts/lib.sh
 [ $# -ge 2 ] || { sed -n '2,9p' "$0"; exit 2; }
 load_config "$1"; WHAT="$2"; shift 2
-DRY=0; PREVIEW=0; ALLOW_VANDA_CPU=0
-for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; --preview) DRY=1; PREVIEW=1 ;; --allow-vanda-cpu) ALLOW_VANDA_CPU=1 ;; *) echo "unknown option $a" >&2; exit 2 ;; esac; done
+DRY=0; PREVIEW=0; ALLOW_VANDA_CPU=1
+for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; --preview) DRY=1; PREVIEW=1 ;; --allow-vanda-cpu) ALLOW_VANDA_CPU=1 ;; --no-vanda-cpu) ALLOW_VANDA_CPU=0 ;; *) echo "unknown option $a" >&2; exit 2 ;; esac; done
 
 if [ "$PREVIEW" = 1 ]; then
   # assumed numbers, only for the preview
@@ -22,14 +24,16 @@ if [ "$PREVIEW" = 1 ]; then
   echo "(PREVIEW: assuming 64 cores/node, 4 GPUs/node, 16 CPUs with a GPU job -- NOT real values)"
 fi
 
-TOTAL_CH=0
-sub() {   # sub <name> <queue> <select-string> <walltime> <cores-charged> <vars>
-  local name="$1" queue="$2" sel="$3" wall="$4" cores="$5" vars="$6" proj cmd h
-  proj="$(cfg PROJECT)"
-  cmd="qsub -N p3_$name -q $queue ${proj:+-P $proj }-l $sel -l walltime=$wall -v $vars scripts/pbs/${name%%@*}.pbs"
+TOTAL_CH=0; TOTAL_GH=0
+sub() {   # sub <name> <queue> <select-string> <walltime> <cores-charged> <vars> [gpus]
+  local name="$1" queue="$2" sel="$3" wall="$4" cores="$5" vars="$6" gpus="${7:-0}" proj cmd h place
+  proj="$(cfg PROJECT)"; place="$(cfg PLACE)"; [ "$gpus" -gt 0 ] && place=""   # exclusive nodes only for CPU jobs
+  cmd="qsub -N p3_$name ${queue:+-q $queue }${proj:+-P $proj }-l $sel ${place:+-l place=$place }-l walltime=$wall -v $vars scripts/pbs/${name%%@*}.pbs"
   h="$(echo "$wall" | awk -F: '{ print $1 + $2 / 60 + $3 / 3600 }')"
   TOTAL_CH="$(awk -v t="$TOTAL_CH" -v c="$cores" -v h="$h" 'BEGIN { printf "%.1f", t + c * h }')"
-  printf '%s   # <= %s core-hours\n' "$cmd" "$(awk -v c="$cores" -v h="$h" 'BEGIN { printf "%.1f", c * h }')"
+  TOTAL_GH="$(awk -v t="$TOTAL_GH" -v g="$gpus" -v h="$h" 'BEGIN { printf "%.1f", t + g * h }')"
+  printf '%s   # <= %s core-hours%s\n' "$cmd" "$(awk -v c="$cores" -v h="$h" 'BEGIN { printf "%.1f", c * h }')" \
+    "$([ "$gpus" -gt 0 ] && awk -v g="$gpus" -v h="$h" 'BEGIN { printf ", %.1f GPU-hours", g * h }')"
   if [ "$DRY" = 0 ]; then eval "$cmd"; fi
 }
 
@@ -39,7 +43,7 @@ fill() { local s="$1"; s="${s//\{NODES\}/$2}"; s="${s//\{CPN\}/$3}"; s="${s//\{C
 tiers() {
   local cpn="$1"; shift
   echo "$@" | tr ' ' '\n' | awk -v cpn="$cpn" 'NF { n = int(($1 + cpn - 1) / cpn); if (JOB == "single") n = -1; g[n] = g[n] (g[n] ? ":" : "") $1; if (n > maxn) maxn = n }
-    END { if (JOB == "single") { printf "%d %s\n", maxn, g[-1]; exit } for (k in g) printf "%d %s\n", k, g[k] }' JOB="$JOB_SPLIT" | sort -n
+    END { if (JOB == "single") { printf "%d %s\n", maxn, g[-1]; exit } for (k in g) printf "%d %s\n", k, g[k] }' JOB="$JOB_SPLIT" | sort -rn      # largest node count first: it waits longest in the queue
 }
 
 cpu_job() {   # cpu_job <exp> <wall> <np list>
@@ -60,7 +64,7 @@ do_exp() {
   local e="$1" cpn
   case "$e" in serial|strong|weak|decomp_halo|hybrid)
     if [ "$CLUSTER" = vanda ] && [ "$ALLOW_VANDA_CPU" = 0 ]; then
-      echo "SKIP $e on vanda: CPU experiments run on Atlas (Vanda's core-hours are reserved for GPU runs; --allow-vanda-cpu overrides)"
+      echo "SKIP $e on vanda (--no-vanda-cpu given)"
       return
     fi ;;
   esac
@@ -75,10 +79,10 @@ do_exp() {
     gpu_sweep|gpu_multi)
       [ "$CLUSTER" = vanda ] || { echo "GPU experiments run on Vanda only" >&2; return; }
       local cpus gpus sel w
-      cpus="$(cfg GPU_NODE_CPUS)"
       if [ "$e" = gpu_sweep ]; then gpus=1; w="$WALL_GPU_SWEEP"; else gpus="$(cfg GPUS_PER_NODE)"; w="$WALL_GPU_MULTI"; fi
+      cpus=$(( $(cfg GPU_NODE_CPUS) * gpus ))       # GPU_NODE_CPUS = CPU cores that come with ONE GPU
       sel="$(fill "$(cfg SELECT_GPU)" "$cpus" "$gpus")"
-      sub "$e" "$(cfg GPU_QUEUE)" "$sel" "$w" "$cpus" "CLUSTER=$CLUSTER" ;;
+      sub "$e" "$(cfg GPU_QUEUE)" "$sel" "$w" "$cpus" "CLUSTER=$CLUSTER" "$gpus" ;;
     *) echo "unknown experiment $e" >&2; exit 2 ;;
   esac
 }
@@ -90,10 +94,13 @@ if [ "$PREVIEW" = 0 ]; then
   require_cfg $req || { echo "fill in config/cluster.env (or use --preview to see the plan)" >&2; exit 1; }
 fi
 case "$WHAT" in
+  essential)   for e in serial strong weak; do do_exp $e; done
+               [ "$CLUSTER" = vanda ] && for e in gpu_sweep gpu_multi; do do_exp $e; done ;;
+  comparisons) for e in decomp_halo hybrid; do do_exp $e; done ;;
   cpu) for e in serial strong weak decomp_halo hybrid; do do_exp $e; done ;;
   gpu) for e in gpu_sweep gpu_multi; do do_exp $e; done ;;
   all) for e in serial strong weak decomp_halo hybrid; do do_exp $e; done
        [ "$CLUSTER" = vanda ] && for e in gpu_sweep gpu_multi; do do_exp $e; done ;;
   *) do_exp "$WHAT" ;;
 esac
-echo "TOTAL core-hours upper bound (cores x requested walltime, if every job ran to its limit): $TOTAL_CH"
+echo "TOTAL upper bound if every job ran to its walltime limit: $TOTAL_CH core-hours (CPU cores requested, incl. the CPUs that come with GPU jobs), $TOTAL_GH GPU-hours"

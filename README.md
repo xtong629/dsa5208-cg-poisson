@@ -82,7 +82,7 @@ Options of `mpi`/`hybrid`: `--dim 2|3 --N <points per axis> --decomp slab|block 
 --compare <serial dump>` (relative difference to a serial solution written by `build/serial --dump`).
 `--iters K` runs exactly K CG iterations (timing runs); otherwise CG runs until `‖r‖/‖b‖ <= tol`.
 
-### Atlas (CPU only, unlimited use)
+### Atlas (CPU only; not used for the reported experiments)
 
 ```bash
 ssh <user>@atlas8.nus.edu.sg          # NUS VPN needed off campus
@@ -92,7 +92,7 @@ git clone <repository-url> && cd <repository>
 make serial mpi hybrid                # compile on the login node
 ```
 
-### Vanda (CPU + A40 GPUs, limited core-hours)
+### Vanda (CPU + A40 GPUs; 72-core CPU nodes, 2 GPUs per GPU node)
 
 Login nodes are VMs: **compile inside an interactive job**.
 
@@ -119,9 +119,14 @@ If CUDA-aware MPI is not available, use `--staging 1` or build with `make cuda C
    `make cuda-alt` — and runs `--selftest` with 1 and 2 ranks; prints a PASS/FAIL summary).
    `bash scripts/first_login.sh vanda --batch` submits this step as a batch job instead.
 
-**Policy.** All CPU experiments (including the serial runs, so that `T_s` and `T_p(n)` come from
-the same hardware) run on **Atlas**; **Vanda's** limited core-hours are reserved for the GPU
-experiments. `scripts/submit.sh` skips CPU experiments on Vanda unless `--allow-vanda-cpu` is given.
+**Policy.** Everything runs on **Vanda** (serial `T_s`, MPI strong/weak scaling to 256 ranks, the
+decomposition/halo/hybrid comparisons and the GPU runs), so that `T_s` and `T_p(n)` come from the same
+hardware. Atlas is not used for the experiments: its per-user limit (96 cores) is below the 256-core
+requirement. `scripts/submit.sh vanda ... --no-vanda-cpu` restricts a submission to the GPU experiments.
+Your PBS project name goes into `config/cluster.local.env` (git-ignored, see `config/cluster.env`).
+
+`bash scripts/mpi_check.sh vanda` (PBS template `scripts/pbs/mpicheck.pbs`, run it on 2 nodes) checks
+`mpirun`, the transport, `MPI_Init_thread` and the binding flags, with a timeout on every launch.
 
 ## Running the experiments
 
@@ -131,9 +136,9 @@ cluster parameters live in `config/cluster.env`. Timing runs use a fixed number 
 convergence runs are separate.
 
 ```bash
-bash scripts/submit.sh atlas all --dry-run     # show the qsub commands and the core-hour upper bound
-bash scripts/submit.sh atlas serial            # submit one experiment
-bash scripts/submit.sh atlas cpu               # serial strong weak decomp_halo hybrid
+bash scripts/submit.sh vanda all --dry-run     # show the qsub commands and the core-/GPU-hour upper bounds
+bash scripts/submit.sh vanda serial            # submit one experiment
+bash scripts/submit.sh vanda cpu               # serial strong weak decomp_halo hybrid
 bash scripts/submit.sh vanda gpu               # gpu_sweep gpu_multi
 ```
 
@@ -146,18 +151,18 @@ only).
 
 | Experiment | Cluster | What it runs |
 |---|---|---|
-| `serial` | Atlas | fixed-iteration runtime vs N (and `T_s`), and runs to tolerance, 2D+3D |
-| `strong` | Atlas | fixed N, 1…256 (…512) ranks, block + non-blocking overlap; Allreduce latency |
-| `weak` | Atlas | fixed points per rank, N grows as `n^(1/d)` |
-| `decomp_halo` | Atlas | slab vs block × blocking / non-blocking / overlap |
-| `hybrid` | Atlas | ranks × threads = fixed total cores |
+| `serial` | Vanda | fixed-iteration runtime vs N (and `T_s`), and runs to tolerance, 2D+3D |
+| `strong` | Vanda | fixed N, 1…256 (…512) ranks, block + non-blocking overlap; Allreduce latency |
+| `weak` | Vanda | fixed points per rank, N grows as `n^(1/d)` |
+| `decomp_halo` | Vanda | slab vs block × blocking / non-blocking / overlap |
+| `hybrid` | Vanda | ranks × threads = fixed total cores |
 | `gpu_sweep` | Vanda | 1 GPU vs one CPU node (same allocation), size sweep |
 | `gpu_multi` | Vanda | 1…G GPUs; overlap on/off; CUDA-aware vs host-staged |
 
 ## Reproducing the figures
 
 ```bash
-python3 scripts/plot.py --results results/atlas --results results/vanda --out figures
+python3 scripts/plot.py --results results/vanda --out figures
 ```
 
 | Figure (in `figures/`) | Experiment | Quantity |

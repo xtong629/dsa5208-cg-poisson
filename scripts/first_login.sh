@@ -59,8 +59,8 @@ else echo "(module command not available: set ${CLUSTER_U}_ENV_INIT in config/cl
 echo "   MPI-ish modules:"; grep -i -E 'mpi|nvhpc|cuda|gcc|intel' "$OUT/modules.txt" | head -20
 
 echo
-echo "POLICY: run ALL CPU experiments (serial T_s, strong/weak, decomposition/halo, hybrid) on ATLAS (unlimited use)."
-echo "        Reserve VANDA's limited core-hours for the GPU experiments unless the allocation (allocation.txt) is clearly sufficient."
+echo "POLICY: ALL experiments (serial T_s, strong/weak, decomposition/halo, hybrid, GPU) run on VANDA, so that"
+echo "        T_s and T_p(n) come from the same hardware (Atlas: 96 cores per user < the 256 required)."
 echo
 echo "Now read $OUT/*.txt and fill CHANGE_ME in config/cluster.env:"
 echo "  queue names, cores per node, max cores per job (qstat -Qf), modules (module avail), GPUs per node (Vanda)."
