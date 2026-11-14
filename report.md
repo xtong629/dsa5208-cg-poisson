@@ -201,7 +201,7 @@ in the same padded layout, and only scalars (dot products) go to the host.
   scaled speedup $= S + P\,n$.
   **Strong scaling:** fixed $N$, increasing $n$. **Weak scaling:** $N$ and $n$ increased together so that the number of points per rank is (approximately) constant; because $N(n)=\mathrm{round}(N_1 n^{1/d})$ is an integer, the efficiency is normalised by the exact points per rank
   (definition in `scripts/plot.py`).
-* **Machine:** all experiments (CPU and GPU) on the NUS Vanda cluster, so that $T_s$ and $T_p(n)$ come from the same hardware. TODO: CPU model, cores per node (72 per node; 64 ranks per node are used), memory, interconnect, MPI library and version (NVHPC 26.1 / HPC-X Open MPI), compiler and flags, GPU model (A40) and CUDA version.
+* **Machine:** all experiments (CPU and GPU) on the NUS Vanda cluster, so that $T_s$ and $T_p(n)$ come from the same hardware. The nodes are connected by **plain Ethernet** (TCP; the RDMA-capable ports of the NICs are down, so no InfiniBand/RoCE transport is available), and the measured latency of a one-double `MPI_Allreduce` on 2 nodes (8 ranks) is **about 52 µs**, against a few µs within a node; this explains the efficiency drop of the multi-node points in the scaling figures (the halo exchange and, above all, the two Allreduces per iteration become latency-bound). TODO: CPU model (record it from the run provenance files), cores per node (72 per node; 64 ranks per node are used), memory, interconnect, MPI library and version (NVHPC 26.1 / HPC-X Open MPI), compiler and flags, GPU model (A40) and CUDA version.
 * Timings from the development laptop are used only to check correctness and never appear in this report.
 
 ---

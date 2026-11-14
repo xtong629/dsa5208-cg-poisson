@@ -126,12 +126,12 @@ exp_gpu_sweep() {
   local dim N rep sizes cpus
   cpus="$(cfg GPU_NODE_CPUS)"
   echo "GPU self-test before spending time on runs ..."
-  OMP_NUM_THREADS=1 $MPIRUN -np 1 "$REPO_ROOT/build/cuda" --selftest || { echo "selftest failed; aborting" >&2; exit 3; }
+  OMP_NUM_THREADS=1 timeout 300 $MPIRUN $MPI_BIND -np 1 "$REPO_ROOT/build/cuda" --selftest || { echo "selftest failed; aborting" >&2; exit 3; }
   for dim in 2 3; do
     if [ "$dim" = 2 ]; then sizes="$GPU_SIZES_2D"; else sizes="$GPU_SIZES_3D"; fi
     for N in $sizes; do
       for rep in $(seq 1 "$REPS"); do
-        run_logged $MPIRUN -np 1 "$REPO_ROOT/build/cuda" --dim $dim --N "$N" --iters "$ITERS" \
+        run_logged $MPIRUN $MPI_BIND -np 1 "$REPO_ROOT/build/cuda" --dim $dim --N "$N" --iters "$ITERS" \
           --halo nonblocking --overlap 1 --csv "$CSV" --tag gpu_1gpu --rep "$rep"
       done
       if pts_ok $dim "$N" "$cpus"; then           # one CPU node, pure MPI, same sizes
@@ -151,7 +151,10 @@ exp_gpu_multi() {
   gmax="$(cfg GPUS_PER_NODE)"
   nps="$(awk -v g="$gmax" 'BEGIN { n = 1; while (n <= g) { printf "%d ", n; last = n; n *= 2 } if (last != g) printf "%d", g }')"
   [ -n "${NP_LIST_JOB:-}" ] && nps="$(echo "$NP_LIST_JOB" | tr ':' ' ')"
-  OMP_NUM_THREADS=1 $MPIRUN -np 1 "$REPO_ROOT/build/cuda" --selftest || { echo "selftest failed; aborting" >&2; exit 3; }
+  OMP_NUM_THREADS=1 timeout 300 $MPIRUN $MPI_BIND -np 1 "$REPO_ROOT/build/cuda" --selftest || { echo "selftest failed; aborting" >&2; exit 3; }
+  if [ "$gmax" -gt 1 ]; then   # selftest across ALL GPUs of the job (device halos between two different GPUs)
+    OMP_NUM_THREADS=1 timeout 300 $MPIRUN $MPI_BIND -np "$gmax" "$REPO_ROOT/build/cuda" --selftest || { echo "multi-GPU selftest failed; aborting" >&2; exit 3; }
+  fi
   for dim in 2 3; do
     if [ "$dim" = 2 ]; then N="$GPU_MULTI_N_2D"; else N="$GPU_MULTI_N_3D"; fi
     for np in $nps; do
@@ -159,7 +162,7 @@ exp_gpu_multi() {
         halo="$(echo "$v" | cut -d: -f1)"; ov="$(echo "$v" | cut -d: -f2)"; st="$(echo "$v" | cut -d: -f3)"
         [ "$np" -eq 1 ] && [ "$v" != "nonblocking:1:0" ] && continue   # no neighbours: variants coincide
         for rep in $(seq 1 "$REPS"); do
-          run_logged $MPIRUN -np "$np" "$REPO_ROOT/build/cuda" --dim $dim --N "$N" --iters "$ITERS" \
+          run_logged $MPIRUN $MPI_BIND -np "$np" "$REPO_ROOT/build/cuda" --dim $dim --N "$N" --iters "$ITERS" \
             --decomp block --halo "$halo" --overlap "$ov" --staging "$st" --csv "$CSV" \
             --tag gpu_multi --rep "$rep"
         done
