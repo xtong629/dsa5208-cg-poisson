@@ -25,6 +25,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+plt.rcParams.update({"font.size": 14, "axes.titlesize": 13, "axes.labelsize": 13, "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10, "figure.titlesize": 14})
 from matplotlib.ticker import FuncFormatter, ScalarFormatter
 
 NUMERIC = {"dim", "N", "unknowns", "ranks", "threads", "overlap", "iters", "converged", "rel_resid",
@@ -94,7 +95,7 @@ def pow2_axis(ax, which="x"):
 
 
 def finish(fig, out, name, title=None):
-    if title: fig.suptitle(title, fontsize=11)
+    if title: fig.suptitle(title, fontsize=14)
     if LABEL:
         fig.text(0.5, 0.5, LABEL, fontsize=34, color="red", alpha=0.18, ha="center", va="center", rotation=25)
         fig.text(0.01, 0.005, LABEL + " -- not results for the report", fontsize=7, color="red")
@@ -113,7 +114,7 @@ def amdahl_fit(n, s):
     return float(grid[int(np.argmin(err))])
 
 
-def new_fig(ncols, w=4.4, h=3.6, nrows=1):
+def new_fig(ncols, w=3.8, h=3.3, nrows=1):
     return plt.subplots(nrows, ncols, figsize=(w * ncols, h * nrows), squeeze=False)
 
 
@@ -139,7 +140,7 @@ def fig_serial(rows, out):
                   title="(a) cost of one iteration\n(dashed: linear in unknowns)")
     axs[0][1].set(xlabel="problem size (number of unknowns)", ylabel="time to solution [s]",
                   title="(b) run to tolerance\n(dashed: unknowns^(1+1/d))")
-    for a in axs[0]: a.grid(True, which="both", alpha=0.25); a.legend(fontsize=8)
+    for a in axs[0]: a.grid(True, which="both", alpha=0.25); a.legend(fontsize=10)
     finish(fig, out, "fig_serial_scaling", "Serial runtime vs problem size")
 
 
@@ -172,7 +173,7 @@ def fig_strong(rows, out, tabdir):
     for dim in (2, 3):
         sizes = sorted({r["N"] for r in table if r["dim"] == dim})
         if not sizes: continue
-        fig, axs = new_fig(3, w=4.3)
+        fig, axs = new_fig(3, w=3.5, h=3.8)
         for i, N in enumerate(sizes):
             tr = [r for r in table if r["dim"] == dim and r["N"] == N]
             n = np.array([r["ranks"] for r in tr], float)
@@ -203,7 +204,7 @@ def fig_strong(rows, out, tabdir):
         axs[0][1].set(ylabel="speedup T_s / T_p(n)", title="(b) speedup (x: MPI on 1 rank)")
         axs[0][2].set(ylabel="efficiency T_s / (n T_p(n))", title="(c) efficiency"); axs[0][2].axhline(1, color="k", ls=":", lw=1)
         axs[0][2].set_ylim(0, 1.3)
-        axs[0][0].legend(fontsize=7); axs[0][1].legend(fontsize=6)
+        axs[0][0].legend(fontsize=10); axs[0][1].legend(fontsize=10)
         finish(fig, out, "fig_strong_%dD" % dim, "Strong scaling, %dD Poisson, block decomposition, non-blocking + overlap" % dim)
 
 
@@ -244,9 +245,9 @@ def fig_weak(rows, out, tabdir):
                                   "weak_efficiency": float(e), "scaled_speedup": float(e) * k[0]})
         for a in axs[0]:
             pow2_axis(a); a.set_xlabel("MPI ranks n"); a.grid(True, which="both", alpha=0.25)
-            if a.get_legend_handles_labels()[0]: a.legend(fontsize=8)
-        axs[0][0].set(ylabel="time per CG iteration [s]", title="(a) time per iteration\n(ideal weak scaling: flat; dotted: serial program)")
-        axs[0][1].set(ylabel="weak-scaling efficiency", title="(b) efficiency (normalised, see script header)")
+            if a.get_legend_handles_labels()[0]: a.legend(fontsize=10)
+        axs[0][0].set(ylabel="time per CG iteration [s]", title="(a) time per iteration")
+        axs[0][1].set(ylabel="weak-scaling efficiency", title="(b) efficiency")
         axs[0][1].axhline(1, color="k", ls=":", lw=1); axs[0][1].set_ylim(0, 1.3)
         finish(fig, out, "fig_weak_%dD" % dim, "Weak scaling, %dD Poisson (fixed points per rank)" % dim)
     if table: write_table(table, os.path.join(tabdir, "weak_scaling.csv"),
@@ -272,7 +273,7 @@ def fig_comm(rows, out):
             ax.loglog(n, [g[k]["t_total"] / g[k]["iters"] for k in ns], "k--", label="total")
             pow2_axis(ax); ax.set(xlabel="MPI ranks n", ylabel="time per CG iteration [s]", title="N=%d" % N)
             ax.grid(True, which="both", alpha=0.25)
-            if j == 0: ax.legend(fontsize=7)
+            if j == 0: ax.legend(fontsize=10)
             ax2 = axs[1][j]
             tot = np.array([g[k]["t_total"] for k in ns])
             parts = [("t_stencil", "stencil"), ("t_vector", "vector updates"), ("t_halo", "halo exchange"),
@@ -284,7 +285,7 @@ def fig_comm(rows, out):
                 ax2.bar(xs, y, width, bottom=bottom, color=colors[f], label=lab); bottom += y
             ax2.set_xticks(xs); ax2.set_xticklabels(["%d" % v for v in n])
             ax2.set(xlabel="MPI ranks n (log2 spacing)", ylabel="fraction of total runtime\n(mean over ranks)", ylim=(0, 1.02))
-            if j == 0: ax2.legend(fontsize=7, loc="lower left")
+            if j == 0: ax2.legend(fontsize=10, loc="lower left")
         finish(fig, out, "fig_comm_breakdown_%dD" % dim,
                "Where the time goes, %dD (strong scaling)" % dim)
 
@@ -295,7 +296,7 @@ def fig_decomp(rows, out):
     for dim in (2, 3):
         dd = sel(d, dim=dim)
         if not dd: continue
-        fig, axs = new_fig(3, w=4.4)
+        fig, axs = new_fig(3, w=3.5, h=3.8)
         for i, dec in enumerate(("slab", "block")):
             # surface (values sent per halo exchange) and exposed halo time, blocking variant
             g = group_median(sel(dd, decomp=dec, halo="blocking"), lambda r: int(r["ranks"]),
@@ -305,9 +306,9 @@ def fig_decomp(rows, out):
             axs[0][0].loglog(n, [g[k]["halo_doubles"] for k in ns], "o-", color=C[i], label=dec)
             axs[0][1].loglog(n, [g[k]["t_halo"] / g[k]["iters"] for k in ns], "o-", color=C[i], label=dec)
             axs[0][2].loglog(n, [g[k]["t_total"] / g[k]["iters"] for k in ns], "o-", color=C[i], label=dec)
-        for a in axs[0]: pow2_axis(a); a.set_xlabel("MPI ranks n"); a.grid(True, which="both", alpha=0.25); a.legend(fontsize=8)
-        axs[0][0].set(ylabel="doubles sent per rank per halo exchange", title="(a) halo surface (max over ranks)")
-        axs[0][1].set(ylabel="halo-exchange time per iteration [s]", title="(b) communication time")
+        for a in axs[0]: pow2_axis(a); a.set_xlabel("MPI ranks n"); a.grid(True, which="both", alpha=0.25); a.legend(fontsize=10)
+        axs[0][0].set(ylabel="doubles per halo exchange", title="(a) halo surface")
+        axs[0][1].set(ylabel="halo time per iteration [s]", title="(b) communication time")
         axs[0][2].set(ylabel="time per iteration [s]", title="(c) total time")
         finish(fig, out, "fig_decomposition_%dD" % dim, "Slab (1D) vs block (%dD) decomposition, %dD, blocking halo exchange" % (dim, dim))
         # halo variants
@@ -325,7 +326,7 @@ def fig_decomp(rows, out):
             ax.set_yscale("log"); ax.set_xticks(range(len(nsall))); ax.set_xticklabels(["%d" % k for k in nsall])
             ax.set(xlabel="MPI ranks n", ylabel="time per iteration [s]", title=dec)
             ax.grid(True, which="both", axis="y", alpha=0.25)
-            if j == 0: ax.legend(fontsize=7)
+            if j == 0: ax.legend(fontsize=10)
         finish(fig, out, "fig_halo_variants_%dD" % dim, "Halo-exchange variants, %dD" % dim)
 
 
@@ -338,7 +339,7 @@ def fig_allreduce(rows, out, root_dirs):
     if not rr: return
     g = group_median(rr, lambda r: int(r["ranks"]), ["t_allreduce_us"])
     ns = sorted(g); n = np.array(ns, float)
-    fig, axs = new_fig(1, w=5.2)
+    fig, axs = new_fig(1, w=6.0, h=4.2)
     ax = axs[0][0]
     ax.loglog(n, [g[k]["t_allreduce_us"] for k in ns], "o-", color=C[0], label="micro-benchmark: MPI_Allreduce, 1 double")
     for i, dim in enumerate((2, 3)):
@@ -347,9 +348,9 @@ def fig_allreduce(rows, out, root_dirs):
             ks = sorted(k for k in s if k[0] == Nn)
             # 2 Allreduces per CG iteration (+1 at start, ignored)
             ax.loglog([k[1] for k in ks], [s[k]["t_allreduce"] / (2.0 * s[k]["iters"]) * 1e6 for k in ks], "s--",
-                      color=C[1 + i], alpha=0.5 + 0.25 * j, ms=4, label="inside CG, %dD N=%d (incl. wait for slowest rank)" % (dim, Nn))
+                      color=C[1 + i], alpha=0.5 + 0.25 * j, ms=4, label="inside CG, %dD N=%d (incl. wait)" % (dim, Nn))
     pow2_axis(ax); ax.set(xlabel="MPI ranks n", ylabel="time per Allreduce [microseconds]", title="Allreduce latency vs rank count")
-    ax.grid(True, which="both", alpha=0.25); ax.legend(fontsize=6)
+    ax.grid(True, which="both", alpha=0.25); ax.set_ylim(top=2e4); ax.legend(fontsize=9, loc="upper left")
     finish(fig, out, "fig_allreduce_latency")
 
 
@@ -370,7 +371,7 @@ def fig_hybrid(rows, out):
             ref = sel(hd, tag="hybrid_total%d_pure_mpi" % tot)
             if ref:
                 axs[0][0].axhline(float(np.median([r["t_total"] / r["iters"] for r in ref])), color=C[i], ls=":", lw=1)
-        for a in axs[0]: pow2_axis(a); a.set_xlabel("OpenMP threads per rank (ranks = cores / threads)"); a.grid(True, which="both", alpha=0.25); a.legend(fontsize=8)
+        for a in axs[0]: pow2_axis(a); a.set_xlabel("OpenMP threads per rank"); a.grid(True, which="both", alpha=0.25); a.legend(fontsize=10)
         axs[0][0].set(ylabel="time per iteration [s]", title="(a) fixed total cores (dotted: pure MPI binary)")
         axs[0][1].set(ylabel="communication fraction", title="(b) (halo + Allreduce) / total")
         finish(fig, out, "fig_hybrid_%dD" % dim, "MPI+OpenMP configurations at fixed core count, %dD" % dim)
@@ -391,7 +392,7 @@ def fig_gpu(rows, out):
             if both: axs[0][1].loglog(both, [cc[k]["t_total"] / gg[k]["t_total"] for k in both], "o-", color=C[i], label="%dD" % dim)
         axs[0][0].set(xlabel="problem size (number of unknowns)", ylabel="time per iteration [s]", title="(a) 1 GPU vs 1 CPU node")
         axs[0][1].set(xlabel="problem size (number of unknowns)", ylabel="GPU speedup over CPU node", title="(b) speedup")
-        for a in axs[0]: a.grid(True, which="both", alpha=0.25); a.legend(fontsize=8)
+        for a in axs[0]: a.grid(True, which="both", alpha=0.25); a.legend(fontsize=10)
         finish(fig, out, "fig_gpu_vs_cpu", "GPU (CUDA + MPI) vs CPU node")
     gm = [r for r in rows if r.get("tag") == "gpu_multi"]
     if gm:
@@ -408,7 +409,7 @@ def fig_gpu(rows, out):
                 axs[0][0].loglog(n, [g[k]["t_total"] / g[k]["iters"] for k in ks], "o-", color=C[i % 8], label=lab)
                 if 1 in g and t1 is None: t1 = g[1]["t_total"]
                 if t1: axs[0][1].semilogx(n, [t1 / (k * g[k]["t_total"]) for k in ks], "o-", color=C[i % 8], label=lab)
-            for a in axs[0]: pow2_axis(a); a.set_xlabel("GPUs (one rank per GPU)"); a.grid(True, which="both", alpha=0.25); a.legend(fontsize=6)
+            for a in axs[0]: pow2_axis(a); a.set_xlabel("GPUs (one rank per GPU)"); a.grid(True, which="both", alpha=0.25); a.legend(fontsize=10)
             axs[0][0].set(ylabel="time per iteration [s]", title="(a) strong scaling")
             axs[0][1].set(ylabel="efficiency vs 1 GPU", title="(b) efficiency"); axs[0][1].set_ylim(0, 1.3)
             finish(fig, out, "fig_gpu_multi_%dD" % dim, "Multi-GPU scaling, %dD, N=%d" % (dim, int(d[0]["N"])))

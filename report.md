@@ -369,8 +369,7 @@ The validation was run on 14–15 November 2026 (job output is not stored in the
 
 ## 8 AI usage
 
-**TODO — to be written by the group, honestly and specifically.** The course requires AI use to be declared and the report to make sense to a reader. Suggested content: which AI tools were used; for which parts (code, scripts, report text, debugging); what the group did to check
-the output (the automated validation, review of the code, running the experiments themselves); and which parts were written without AI assistance.
+[你们定稿的 AI 声明]
 
 ---
 

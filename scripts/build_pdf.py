@@ -50,7 +50,7 @@ tmp = os.path.join(ROOT, ".report_build.md")
 open(tmp, "w", encoding="utf-8").write(text)
 cmd = ["pandoc", tmp, "-o", os.path.join(ROOT, "report.pdf"), "--pdf-engine=tectonic", "--resource-path=" + ROOT,
        "-V", "papersize=a4", "-V", "geometry:margin=2.2cm", "-V", "fontsize=10pt", "-V", "colorlinks=true",
-       "-f", "markdown+tex_math_dollars+pipe_tables", "--toc", "--toc-depth=2", "-H", pre]
+       "-f", "markdown+tex_math_dollars+pipe_tables", "--toc", "--toc-depth=2", "-H", pre, "-V", "CJKmainfont=Songti SC"]
 r = subprocess.run(cmd, cwd=ROOT)
 os.remove(tmp); os.remove(pre)
 print("embedded figures:", n, "of", len(CAP), "| missing:", sorted(set(CAP) - seen))
