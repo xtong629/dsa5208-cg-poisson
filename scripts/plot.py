@@ -94,12 +94,12 @@ def pow2_axis(ax, which="x"):
     getattr(ax, "%saxis" % which).set_major_formatter(fmt)
 
 
-def finish(fig, out, name, title=None):
+def finish(fig, out, name, title=None, bottom=0.02):
     if title: fig.suptitle(title, fontsize=14)
     if LABEL:
         fig.text(0.5, 0.5, LABEL, fontsize=34, color="red", alpha=0.18, ha="center", va="center", rotation=25)
         fig.text(0.01, 0.005, LABEL + " -- not results for the report", fontsize=7, color="red")
-    fig.tight_layout(rect=(0, 0.02, 1, 0.96 if title else 1))
+    fig.tight_layout(rect=(0, bottom, 1, 0.96 if title else 1))
     for ext in ("png", "pdf"):
         fig.savefig(os.path.join(out, "%s.%s" % (name, ext)), dpi=160)
     plt.close(fig)
@@ -273,7 +273,6 @@ def fig_comm(rows, out):
             ax.loglog(n, [g[k]["t_total"] / g[k]["iters"] for k in ns], "k--", label="total")
             pow2_axis(ax); ax.set(xlabel="MPI ranks n", ylabel="time per CG iteration [s]", title="N=%d" % N)
             ax.grid(True, which="both", alpha=0.25)
-            if j == 0: ax.legend(fontsize=10)
             ax2 = axs[1][j]
             tot = np.array([g[k]["t_total"] for k in ns])
             parts = [("t_stencil", "stencil"), ("t_vector", "vector updates"), ("t_halo", "halo exchange"),
@@ -285,9 +284,10 @@ def fig_comm(rows, out):
                 ax2.bar(xs, y, width, bottom=bottom, color=colors[f], label=lab); bottom += y
             ax2.set_xticks(xs); ax2.set_xticklabels(["%d" % v for v in n])
             ax2.set(xlabel="MPI ranks n (log2 spacing)", ylabel="fraction of total runtime\n(mean over ranks)", ylim=(0, 1.02))
-            if j == 0: ax2.legend(fontsize=10, loc="lower left")
+        hs, ls = axs[0][0].get_legend_handles_labels()   # one shared legend below the panels (not on top of the data)
+        fig.legend(hs, ls, loc="lower center", ncol=6, fontsize=10, frameon=False)
         finish(fig, out, "fig_comm_breakdown_%dD" % dim,
-               "Where the time goes, %dD (strong scaling)" % dim)
+               "Where the time goes, %dD (strong scaling)" % dim, bottom=0.07)
 
 
 def fig_decomp(rows, out):
