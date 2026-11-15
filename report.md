@@ -1,6 +1,6 @@
 ---
 title: "Scalable matrix-free Conjugate Gradient for the Poisson equation in 2D and 3D: MPI, MPI+OpenMP and MPI+CUDA"
-subtitle: "DSA5208 Project 3 — DRAFT (sections marked TODO depend on cluster results)"
+subtitle: "DSA5208 Project 3"
 ---
 
 ## Group members
@@ -297,7 +297,18 @@ The serial binary needs more than 6 GB for 3D $N=512$, so the serial job is subm
 * **Hybrid is 3–11% faster than pure MPI on one node.** The best configurations are 8×8 for 2D (8% faster) and 4×16 for 3D (11% faster). Fewer ranks mean fewer and larger messages, fewer participants in the Allreduce, and less halo surface; against this, threads add fork–join overhead and possible NUMA effects. On one node the gains are modest because the memory bandwidth limit (Section 4.1) bounds all configurations alike, and because all ranks pin their threads to neighbouring cores with `taskset` (we did not measure unpinned runs, nor the effect of first-touch separately).
 * The differences between neighbouring configurations (for example 3D 8×8 vs 16×4) are of the same size as run-to-run noise, so the ranking of the middle configurations should not be over-interpreted; the clear result is that pure MPI (many ranks, one thread each) is the slowest or close to the slowest configuration.
 
-> **PENDING (extra):** the **256-core** hybrid comparison (4 nodes; job `p3_hybrid`, queued). Hybrid is expected to help most there, since fewer ranks mean a cheaper multi-node Allreduce; this has not been measured yet.
+**256 cores (4 nodes).** The same comparison on four whole nodes ($n_\text{ranks}\times n_\text{threads}=256$; 64 cores per node; ranks placed with `--map-by ppr:<ranks per node>:node`), median time per iteration in ms, 3 repetitions:
+
+| | MPI 256×1 | 128×2 | 64×4 | 32×8 | 16×16 |
+|---|---|---|---|---|---|
+| 2D $N=4096$ | **0.46** | 0.68 | 0.64 | 0.82 | 0.88 |
+| 3D $N=256$ | **0.71** | 1.09 | 0.98 | 1.18 | 1.74 |
+
+(the pure-MPI binary gives 0.75 ms (2D) and 0.83 ms (3D) for 256×1; the 256×1 hybrid run has repetitions between 0.44 and 0.96 ms in 2D, so the difference between the two binaries is noise.)
+
+* **At 256 cores hybrid is *slower* than pure MPI**, by 40–90% in 2D and 40–150% in 3D relative to the 256×1 hybrid run, and the more threads, the slower (3D: 0.98 ms at 64×4, 1.74 ms at 16×16). This is the opposite of our expectation that fewer ranks would make the multi-node Allreduce cheaper. A likely reason (not measured): at about 0.5–1 ms per iteration each rank has little work, so the OpenMP fork–join and barrier overhead of every parallel loop (several per iteration), and the loss of the interior/boundary overlap inside the threaded region, are no longer small against the iteration time, while the Allreduce share does not fall enough to compensate. With one node the work per iteration is 4–5 ms and the threading overhead is hidden, which is why hybrid wins there and loses here.
+* **Conclusion on hybrid:** it helps by 3–11% when the iteration is long (one node, 4–5 ms) and hurts when the iteration is short (256 cores, below 1 ms). We did not try other thread placements or a threaded Allreduce.
+* **A placement error that we found and fixed.** The first 256-core hybrid run gave 190–260 ms per iteration, several hundred times slower than the pure-MPI run. Cause: with plain by-slot mapping Open MPI fills nodes one after another, so with fewer ranks than slots all ranks and their threads were packed onto too few nodes (a diagnostic job printed the ranks per node: for 64 ranks × 2 threads on two nodes, all 64 ranks were on one node; with `--map-by ppr:32:node` they are 32 + 32). The affected rows were discarded and re-run with `ppr` mapping (`scripts/map_diag.sh` reproduces the check). The one-node results above were not affected (one node, nothing to spread).
 
 ### 5.2 MPI+CUDA (GPU)
 
@@ -338,15 +349,21 @@ The validation was run on 14–15 November 2026 (job output is not stored in the
 
 ## 7 Discussion
 
-**TODO: write after the results are in.** Points to cover (all supported by the figures above):
+**Terms.** *Halo*: the layer of grid points a rank copies from its neighbours before each stencil sweep. *Allreduce*: the collective operation that sums a number over all ranks and gives the result to all; CG needs two per iteration (the dot products). *Slab / block*: splitting the grid into one-dimensional strips or into a multi-dimensional grid of boxes. *Bandwidth-bound*: limited by the speed of moving data to and from memory, not by arithmetic. All times are per CG iteration (fixed 100 iterations), measured on Vanda only.
 
-* *How the problem was split.* Cartesian block decomposition of the grid, ghost layers, the matrix never stored; what each rank owns and what it exchanges (numbers from the `halo_doubles` and `local_points` columns).
-* *Which parts need the most communication.* Compare the two communication types: halo exchange (point-to-point, $\propto$ surface, $2d$ neighbours) and Allreduce (collective, $\propto \log n$, 2 per iteration) — which dominates at 256 ranks for the small and for the large problem, and in which regime the answer changes.
-* *How different parts used different techniques.* Blocking vs non-blocking vs overlap for the halo; OpenMP for node-level parallelism; CUDA kernels and CUDA-aware MPI on the GPU; deterministic tree reduction for the GPU dot product.
-* *Slab vs block*, *hybrid vs pure MPI*, *CPU vs GPU*: the main findings in one paragraph each, with the quantitative evidence.
-* *Limitations and threats to validity.* Shared nodes and network (noise; hence 3 repetitions and medians), fixed iteration counts instead of convergence runs, memory-bandwidth saturation within a node (which limits intra-node strong scaling regardless of communication), overlap depending on the MPI library's progress behaviour,
-  rounded $N$ in weak scaling.
-* *Not done.* One-sided (RMA) halo exchange, a communication-reducing CG variant that fuses the two Allreduces into one per iteration, Kokkos, and any preconditioner (a multigrid preconditioner would reduce the iteration count from $O(N)$ to $O(1)$ but is a different algorithm).
+**How the problem was split.** The $N^d$ grid is divided into a Cartesian grid of boxes, one per MPI rank (Section 2.1); the matrix is never stored, each rank holds its own part of the vectors plus a one-point ghost layer. Per iteration a rank exchanges its halo with up to $2d$ neighbours and takes part in two Allreduces. The data volume sent is proportional to the subdomain surface: for 3D $N=256$ on 256 ranks it is 10 240 doubles per rank for blocks but 131 072 for slabs (12.8× more).
+
+**Which parts need the most communication.** Inside a node (8–64 ranks) communication is small: the halo takes 2–6% of an iteration and the Allreduce 4–15% (3D $N=256$), and most time goes to vector updates and stencil sweeps. Across nodes the picture changes for the small problems: at 256 ranks the Allreduce takes 60% of an iteration for 3D $N=256$ and 64% for 2D $N=4096$ (the halo 13% for 3D), against 16% for 3D $N=512$. The Allreduce time does not shrink with the subdomain, while the halo does. This share includes the time ranks wait for the slowest rank (Section 4.3), so it overstates the network cost; the micro-benchmark gives 5.8 µs for 64 ranks in a node and 130–180 µs once several nodes are involved. In short: the Allreduce, not the halo, limits scaling for small problems on many nodes; the halo matters only with a poor decomposition (slabs in 3D).
+
+**Why efficiency drops inside a node.** With 1–4 ranks the efficiency is 0.9–1.0, at 32–64 ranks only 0.27–0.30 for all four problems, and the speedup saturates at 17–19 per node. Weak scaling shows the same: the time per iteration rises 3.5–5.2× from 1 to 64 ranks but then stays flat across 2 and 4 nodes (at most 2–5% more for the large problems). Because the loss happens inside the node and does not depend on the problem size, the most plausible cause is the shared memory bandwidth; this is consistent with the data but we did not measure the bandwidth, and a 36 + 28 core split between the two sockets of an exclusive 64-core allocation adds to it. The Amdahl fit (serial fraction 0.0095–0.026) does not describe the curves, so we do not interpret it as a serial fraction.
+
+**What multi-node and GPU runs show.** Adding nodes adds memory bandwidth: efficiency rises again from 0.30 to 0.66 (2D $N=4096$) and 0.27 to 0.41 (3D $N=256$) between 64 and 256 ranks, while the two large problems stay at 0.25–0.28. One A40 GPU is about 2.4× faster than the 36 CPU cores of its node for the largest problems (3D $N=384$: 12.8 vs 31.0 ms) but slower below about 2–7 M unknowns, where kernel launches and the host copy at every dot product dominate. Two GPUs of a node reach a speedup of 1.91–1.99× (efficiency 0.96–0.99); overlap gives 13% in 3D and 2% in 2D, and CUDA-aware MPI was not faster than host staging.
+
+**Slab vs block, overlap, hybrid.** Block beats slab only where the halo is large and crosses the network: 3D at 256 ranks, 0.92–0.97 vs 1.5–1.8 ms; on one node and in 2D the difference is within noise or 1–2%, except at 4 ranks with blocking exchange (11–20% for slab). Overlap of halo exchange with the interior stencil gave no consistent gain on CPUs, probably because Open MPI does not progress the transfer while the rank computes (not tested directly). Hybrid MPI+OpenMP is 3–11% faster than pure MPI on one node and 40–150% slower at 256 cores, where iterations are shorter than 1 ms (Section 5.1).
+
+**Limitations.** (i) Timings come from shared cluster nodes and network; we use 3 repetitions and medians, but iterations below 1 ms (256 ranks) vary by up to 1.3–2.3× between repetitions, so small differences there are not conclusive. (ii) We time a fixed 100 iterations; a real solve needs more iterations as $N$ grows (Section 1.4), so the figures compare time per iteration, not time to solution. (iii) The memory-bandwidth explanation and the cache explanation of the multi-node recovery were not tested directly (no STREAM benchmark, no hardware counters). (iv) Weak-scaling sizes are rounded to integer $N$. (v) 512 ranks and multi-node GPU runs were not done; only two GPU counts. (vi) The Allreduce share includes waiting for the slowest rank.
+
+**Not done.** One-sided (RMA) halo exchange; a communication-reducing CG variant with one Allreduce per iteration instead of two; Kokkos; a preconditioner (a multigrid preconditioner would make the iteration count independent of $N$, but is a different algorithm).
 
 ---
 
